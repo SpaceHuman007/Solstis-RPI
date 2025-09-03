@@ -12,7 +12,7 @@ import sys
 import websockets  # pip install websockets
 from dotenv import load_dotenv  # pip install python-dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # --- config ---
 API_KEY = os.getenv("OPENAI_API_KEY")
