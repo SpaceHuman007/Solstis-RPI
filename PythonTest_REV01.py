@@ -23,7 +23,8 @@ if not API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr)
     sys.exit(1)
 
-URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+MODEL = os.getenv("MODEL", "gpt-4o-realtime-preview-2024-12-17")
+URL = f"wss://api.openai.com/v1/realtime?model={MODEL}"
 
 # speaker (ReSpeaker jack)
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g. "plughw:3,0"
