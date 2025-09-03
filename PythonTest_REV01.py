@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# Mic↔Realtime API↔Speaker (ALSA) with select-based PTT and updated event names.
+# Mic↔Realtime API↔Speaker (ALSA) with select-based PTT and robust event handling.
 
 import asyncio, base64, json, os, select, signal, subprocess, sys
 from datetime import datetime
-from dotenv import load_dotenv  # pip install python-dotenv
-import websockets               # pip install "websockets>=11,<13"
+from dotenv import load_dotenv          # pip install python-dotenv
+import websockets                       # pip install "websockets>=11,<13"
 
 load_dotenv(override=True)
 
@@ -16,15 +16,11 @@ if not API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4o-realtime-preview-2024-12-17")
 URL   = f"wss://api.openai.com/v1/realtime?model={MODEL}"
 
-# speaker (ReSpeaker jack)
-OUT_DEVICE = os.getenv("AUDIO_DEVICE")   # e.g. "plughw:3,0"
+OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:3,0"
 OUT_SR     = int(os.getenv("OUT_SR", "24000"))
-
-# mic (ReSpeaker capture)
 MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")
 MIC_SR     = int(os.getenv("MIC_SR", "24000"))
-
-VOICE = os.getenv("VOICE", "verse")
+VOICE      = os.getenv("VOICE", "verse")
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -49,36 +45,9 @@ async def main():
     ) as ws:
         log("WS connected.")
 
-        # ---- Wait for the server's hello ----
-        while True:
-            evt = json.loads(await ws.recv())
-            log(f"<< {evt.get('type')}")
-            if evt.get("type") == "session.created":
-                break
+        session_ready = asyncio.Event()
 
-        # ---- Configure session ----
-        await ws.send(json.dumps({
-            "type":"session.update",
-            "session":{
-                "input_audio_format":"pcm16",
-                "output_audio_format":"pcm16",
-                "instructions":"You are a helpful assistant running on a Raspberry Pi. Be brief."
-            }
-        }))
-        log(">> session.update sent")
-
-        # ---- Quick probe so you hear something immediately ----
-        await ws.send(json.dumps({
-            "type":"response.create",
-            "response":{
-                "modalities":["audio","text"],
-                "instructions":"Say 'Ready'.",
-                "audio":{"voice": VOICE}
-            }
-        }))
-        log(">> probe response.create sent")
-
-        # ---- Reader: handle new event names ----
+        # ---- Reader first: consume ALL events and log them ----
         async def ws_reader():
             log("ws_reader started.")
             async for msg in ws:
@@ -89,10 +58,14 @@ async def main():
                     continue
 
                 t = evt.get("type", "<?>")
-                # trace every event so nothing is hidden
                 log(f"<< {t}")
 
-                if t == "response.audio.delta":
+                # signal session readiness
+                if t == "session.created":
+                    session_ready.set()
+
+                # audio deltas (support both old/new names)
+                if t in ("response.audio.delta", "response.output_audio.delta"):
                     b64 = evt.get("delta","")
                     if b64:
                         try:
@@ -102,16 +75,18 @@ async def main():
                         except Exception as e:
                             log(f"[audio.decode.error] {e}")
 
-                elif t == "response.text.delta":
+                # text deltas (support both old/new names)
+                if t in ("response.text.delta", "response.output_text.delta"):
                     sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
 
-                elif t == "response.done":
-                    # small silence pad
+                # completion (support both old/new names)
+                if t in ("response.done", "response.completed"):
                     try: aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))
                     except Exception: pass
                     print("\n[response done]")
 
-                elif t == "error" or t == "response.error":
+                # errors
+                if t in ("error", "response.error"):
                     log(f"API error: {evt.get('error')}")
 
         # ---- Push-to-talk using select() ----
@@ -153,10 +128,15 @@ async def main():
                 # ---- Send audio & request a response ----
                 log("Sending audio to API...")
                 await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+
+                chunks = 0
                 for i in range(0, len(audio), 8192):
                     b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
                     await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+                    chunks += 1
+                log(f">> appended {chunks} chunks")
                 await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+
                 await ws.send(json.dumps({
                     "type":"response.create",
                     "response":{
@@ -167,7 +147,37 @@ async def main():
                 }))
                 log("Audio sent, waiting for response...")
 
-        await asyncio.gather(ws_reader(), capture_loop())
+        # Start reader BEFORE any sends so nothing is missed
+        tasks = [asyncio.create_task(ws_reader())]
+
+        # Wait until the server says session.created
+        try:
+            await asyncio.wait_for(session_ready.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            log("No session.created within 5s — check model/key."); return
+
+        # Configure session (include formats + voice)
+        await ws.send(json.dumps({
+            "type":"session.update",
+            "session":{
+                "input_audio_format":"pcm16",
+                "output_audio_format":"pcm16",
+                "voice": VOICE,
+                "instructions":"You are a helpful assistant running on a Raspberry Pi. Be brief."
+            }
+        }))
+        log(">> session.update sent")
+
+        # Text-only sanity probe so you SEE replies even if audio-out is disabled
+        await ws.send(json.dumps({
+            "type":"response.create",
+            "response":{"modalities":["text"], "instructions":"Reply with READY"}
+        }))
+        log(">> text-only probe sent")
+
+        # Now start PTT
+        tasks.append(asyncio.create_task(capture_loop()))
+        await asyncio.gather(*tasks)
 
     # Cleanup
     try:
