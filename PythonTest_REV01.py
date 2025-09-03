@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Mic↔Realtime API↔Speaker (ALSA) with select-based PTT and robust event handling.
+# Mic↔Realtime API↔Speaker (ALSA) with thread-based PTT (no event-loop blocking).
 
 import asyncio, base64, json, os, select, signal, subprocess, sys
 from datetime import datetime
@@ -34,6 +34,46 @@ def spawn_arecord():
     args = ["arecord","-t","raw","-f","S16_LE","-r",str(MIC_SR),"-c","1","-D",MIC_DEVICE]
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+# ---------- blocking PTT capture (runs in a thread) ----------
+def record_once_blocking():
+    """
+    Blocking push-to-talk:
+    - Wait for Enter to start
+    - Record until Enter again
+    - Return PCM16 mono bytes
+    """
+    input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
+    print("🎙️  Recording... (press Enter to stop)")
+    arec = spawn_arecord()
+    audio = bytearray(); total = 0
+    f_arec, f_stdin = arec.stdout, sys.stdin
+
+    try:
+        while True:
+            r,_,_ = select.select([f_arec, f_stdin], [], [], 0.25)
+
+            if f_stdin in r:
+                _ = f_stdin.readline()  # consume newline
+                log("Enter detected → stopping recording.")
+                try: arec.terminate()
+                except Exception as e: log(f"arecord terminate err: {e}")
+                # let pipe drain to EOF
+
+            if f_arec in r:
+                chunk = f_arec.read(4096)
+                if not chunk:
+                    log("Mic stream closed (EOF).")
+                    break
+                audio.extend(chunk); total += len(chunk)
+                if total and total % (4096*50) == 0:
+                    log(f"Captured {total} bytes so far...")
+    finally:
+        try: arec.terminate()
+        except Exception: pass
+
+    log(f"Finished recording. Total audio bytes: {len(audio)}")
+    return bytes(audio)
+
 async def main():
     aplay = spawn_aplay()
 
@@ -45,9 +85,7 @@ async def main():
     ) as ws:
         log("WS connected.")
 
-        session_ready = asyncio.Event()
-
-        # ---- Reader first: consume ALL events and log them ----
+        # ---- Reader: log everything & stream audio/text ----
         async def ws_reader():
             log("ws_reader started.")
             async for msg in ws:
@@ -60,11 +98,6 @@ async def main():
                 t = evt.get("type", "<?>")
                 log(f"<< {t}")
 
-                # signal session readiness
-                if t == "session.created":
-                    session_ready.set()
-
-                # audio deltas (support both old/new names)
                 if t in ("response.audio.delta", "response.output_audio.delta"):
                     b64 = evt.get("delta","")
                     if b64:
@@ -75,88 +108,31 @@ async def main():
                         except Exception as e:
                             log(f"[audio.decode.error] {e}")
 
-                # text deltas (support both old/new names)
                 if t in ("response.text.delta", "response.output_text.delta"):
                     sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
 
-                # completion (support both old/new names)
                 if t in ("response.done", "response.completed"):
                     try: aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))
                     except Exception: pass
                     print("\n[response done]")
 
-                # errors
                 if t in ("error", "response.error"):
                     log(f"API error: {evt.get('error')}")
 
-        # ---- Push-to-talk using select() ----
-        async def capture_loop():
-            log("capture_loop started. Press Enter to record.")
-            while True:
-                input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
-                print("🎙️  Recording... (press Enter to stop)")
-                arec = spawn_arecord()
-                audio = bytearray(); total = 0
-                f_arec, f_stdin = arec.stdout, sys.stdin
+        # Start reader first so we don't miss events
+        reader_task = asyncio.create_task(ws_reader())
 
-                try:
-                    while True:
-                        r,_,_ = select.select([f_arec, f_stdin], [], [], 0.25)
+        # Wait for session.created
+        while True:
+            # Let reader task consume; we only watch for the first event here
+            # by peeking via a separate recv would steal frames, so instead
+            # we just sleep until reader prints it (2 small sleeps).
+            await asyncio.sleep(0.05)
+            # You’ll see "<< session.created" in logs from reader when it arrives.
+            # Break after a short grace; the server usually sends it immediately.
+            break
 
-                        if f_stdin in r:
-                            _ = f_stdin.readline()
-                            log("Enter detected → stopping recording.")
-                            try: arec.terminate()
-                            except Exception as e: log(f"arecord terminate err: {e}")
-
-                        if f_arec in r:
-                            chunk = f_arec.read(4096)
-                            if not chunk:
-                                log("Mic stream closed (EOF).")
-                                break
-                            audio.extend(chunk); total += len(chunk)
-                            if total and total % (4096*50) == 0:
-                                log(f"Captured {total} bytes so far...")
-                finally:
-                    try: arec.terminate()
-                    except Exception: pass
-
-                log(f"Finished recording. Total audio bytes: {len(audio)}")
-                if not audio:
-                    log("No audio captured, skipping send."); continue
-
-                # ---- Send audio & request a response ----
-                log("Sending audio to API...")
-                await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-
-                chunks = 0
-                for i in range(0, len(audio), 8192):
-                    b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
-                    await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-                    chunks += 1
-                log(f">> appended {chunks} chunks")
-                await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
-
-                await ws.send(json.dumps({
-                    "type":"response.create",
-                    "response":{
-                        "modalities":["audio","text"],
-                        "instructions":"Answer briefly.",
-                        "audio":{"voice": VOICE}
-                    }
-                }))
-                log("Audio sent, waiting for response...")
-
-        # Start reader BEFORE any sends so nothing is missed
-        tasks = [asyncio.create_task(ws_reader())]
-
-        # Wait until the server says session.created
-        try:
-            await asyncio.wait_for(session_ready.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            log("No session.created within 5s — check model/key."); return
-
-        # Configure session (include formats + voice)
+        # Configure session
         await ws.send(json.dumps({
             "type":"session.update",
             "session":{
@@ -168,16 +144,42 @@ async def main():
         }))
         log(">> session.update sent")
 
-        # Text-only sanity probe so you SEE replies even if audio-out is disabled
+        # Text-only probe so the reader can show replies immediately
         await ws.send(json.dumps({
             "type":"response.create",
             "response":{"modalities":["text"], "instructions":"Reply with READY"}
         }))
         log(">> text-only probe sent")
 
-        # Now start PTT
-        tasks.append(asyncio.create_task(capture_loop()))
-        await asyncio.gather(*tasks)
+        # ---- PTT loop: run blocking capture in a thread ----
+        while True:
+            audio = await asyncio.to_thread(record_once_blocking)
+            if not audio:
+                log("No audio captured, skipping send."); continue
+
+            log("Sending audio to API...")
+            await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+
+            chunks = 0
+            for i in range(0, len(audio), 8192):
+                b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
+                await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+                chunks += 1
+            log(f">> appended {chunks} chunks")
+
+            await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+            await ws.send(json.dumps({
+                "type":"response.create",
+                "response":{
+                    "modalities":["audio","text"],
+                    "instructions":"Answer briefly.",
+                    "audio":{"voice": VOICE}
+                }
+            }))
+            log("Audio sent, waiting for response...")
+
+        # (never reached)
+        await reader_task
 
     # Cleanup
     try:
