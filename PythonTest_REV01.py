@@ -8,6 +8,7 @@ import os
 import signal
 import subprocess
 import sys
+import select
 
 import websockets  # pip install websockets
 from dotenv import load_dotenv  # pip install python-dotenv
@@ -95,32 +96,48 @@ async def main():
 
         async def capture_loop():
             print("[DEBUG] capture_loop started. Press Enter to record.")
-            loop = asyncio.get_event_loop()
             while True:
-                input("Press Enter to talk (Enter again to stop). Ctrl+C to quit.\n")
+                input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
                 print("🎙️  Recording... (press Enter to stop)")
                 arec = spawn_arecord()
                 audio = bytearray()
+                total = 0
 
-                def stopper():
-                    print("[DEBUG] Stop signal received (Enter pressed again).")
-                    try:
-                        arec.terminate()
-                    except Exception as e:
-                        print("[DEBUG] Error terminating arecord:", e)
+                # We'll monitor both arecord's stdout and stdin for Enter
+                f_arec = arec.stdout
+                f_stdin = sys.stdin
 
-                loop.add_reader(sys.stdin, stopper)
                 try:
                     while True:
-                        chunk = arec.stdout.read(4096)
-                        if not chunk:
-                            print("[DEBUG] No more audio chunks from arecord.")
-                            break
-                        audio.extend(chunk)
-                        if len(audio) % (4096 * 50) == 0:  # ~every 200 KB
-                            print(f"[DEBUG] Captured {len(audio)} bytes so far...")
+                        # Wait until either mic has data or user pressed Enter
+                        rlist, _, _ = select.select([f_arec, f_stdin], [], [], 0.25)
+
+                        # Stop on Enter (newline on stdin)
+                        if f_stdin in rlist:
+                            _ = f_stdin.readline()  # consume the newline
+                            print("[DEBUG] Enter detected → stopping recording.")
+                            try:
+                                arec.terminate()
+                            except Exception as e:
+                                print("[DEBUG] Error terminating arecord:", e)
+                            # don't break yet; let the pipe drain to EOF below
+
+                        # Read mic data if available
+                        if f_arec in rlist:
+                            chunk = f_arec.read(4096)
+                            if not chunk:
+                                print("[DEBUG] Mic stream closed (EOF).")
+                                break
+                            audio.extend(chunk)
+                            total += len(chunk)
+                            if total and total % (4096 * 50) == 0:  # ~every 200KB
+                                print(f"[DEBUG] Captured {total} bytes so far...")
                 finally:
-                    loop.remove_reader(sys.stdin)
+                    # ensure arecord is gone
+                    try:
+                        arec.terminate()
+                    except Exception:
+                        pass
 
                 print(f"[DEBUG] Finished recording. Total audio bytes: {len(audio)}")
 
@@ -128,7 +145,7 @@ async def main():
                     print("[DEBUG] No audio captured, skipping send.")
                     continue
 
-                # send audio to API
+                # --- send audio to API ---
                 print("[DEBUG] Sending audio to API...")
                 await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
                 for i in range(0, len(audio), 8192):
