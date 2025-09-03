@@ -68,6 +68,7 @@ async def main():
         }))
 
         async def ws_reader():
+            print("[DEBUG] ws_reader started.")
             while True:
                 msg = await ws.recv()
                 try:
@@ -89,11 +90,11 @@ async def main():
                     # 100 ms silence padding
                     aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))
                     print("\n[response completed]")
-
                 elif t == "error":
                     print("API error:", evt.get("error"))
 
         async def capture_loop():
+            print("[DEBUG] capture_loop started. Press Enter to record.")
             loop = asyncio.get_event_loop()
             while True:
                 input("Press Enter to talk (Enter again to stop). Ctrl+C to quit.\n")
@@ -116,7 +117,7 @@ async def main():
                             print("[DEBUG] No more audio chunks from arecord.")
                             break
                         audio.extend(chunk)
-                        if len(audio) % (4096 * 50) == 0:  # every ~200 KB
+                        if len(audio) % (4096 * 50) == 0:  # ~every 200 KB
                             print(f"[DEBUG] Captured {len(audio)} bytes so far...")
                 finally:
                     loop.remove_reader(sys.stdin)
@@ -137,6 +138,19 @@ async def main():
                 await ws.send(json.dumps({"type": "response.create"}))
                 print("[DEBUG] Audio sent, waiting for response...")
 
+        # >>> START the tasks (this is what was missing)
+        await asyncio.gather(ws_reader(), capture_loop())
+
+    # Cleanup after the ws context exits
+    try:
+        if aplay.stdin:
+            aplay.stdin.close()
+    except Exception:
+        pass
+    try:
+        aplay.terminate()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
