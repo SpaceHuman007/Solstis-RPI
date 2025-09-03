@@ -101,33 +101,42 @@ async def main():
                 arec = spawn_arecord()
                 audio = bytearray()
 
-                # read until Enter
                 def stopper():
+                    print("[DEBUG] Stop signal received (Enter pressed again).")
                     try:
                         arec.terminate()
-                    except:
-                        pass
+                    except Exception as e:
+                        print("[DEBUG] Error terminating arecord:", e)
 
                 loop.add_reader(sys.stdin, stopper)
                 try:
                     while True:
                         chunk = arec.stdout.read(4096)
                         if not chunk:
+                            print("[DEBUG] No more audio chunks from arecord.")
                             break
                         audio.extend(chunk)
+                        if len(audio) % (4096 * 50) == 0:  # every ~200 KB
+                            print(f"[DEBUG] Captured {len(audio)} bytes so far...")
                 finally:
                     loop.remove_reader(sys.stdin)
 
+                print(f"[DEBUG] Finished recording. Total audio bytes: {len(audio)}")
+
+                if not audio:
+                    print("[DEBUG] No audio captured, skipping send.")
+                    continue
+
                 # send audio to API
+                print("[DEBUG] Sending audio to API...")
                 await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
                 for i in range(0, len(audio), 8192):
                     b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
                     await ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": b64}))
                 await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
                 await ws.send(json.dumps({"type": "response.create"}))
-                print("🛑 Sent audio, waiting for reply...")
+                print("[DEBUG] Audio sent, waiting for response...")
 
-        await asyncio.gather(ws_reader(), capture_loop())
 
 
 if __name__ == "__main__":
