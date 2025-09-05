@@ -134,13 +134,11 @@ async def main():
 
         # Configure session
         await ws.send(json.dumps({
-            "type":"session.update",
-            "session":{
-                "input_audio_format":"pcm16",
-                "output_audio_format":"pcm16",
-                "voice": VOICE,
-                "instructions":"You are a helpful assistant running on a Raspberry Pi. Be brief."
-            }
+            "type":"response.create",
+            "response":{
+                "modalities":["audio","text"],
+                "instructions":"Answer briefly."
+             }
         }))
         log(">> session.update sent")
 
@@ -173,7 +171,6 @@ async def main():
                 "response":{
                     "modalities":["audio","text"],
                     "instructions":"Answer briefly.",
-                    "audio":{"voice": VOICE}
                 }
             }))
             log("Audio sent, waiting for response...")
