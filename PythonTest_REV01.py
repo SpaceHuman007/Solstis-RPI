@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-# Realtime API with wake word ("respeaker") → record until silence → TTS reply.
+# Mic↔Realtime API↔Speaker (ALSA) with thread-based PTT (no event-loop blocking).
 
-import asyncio, base64, json, os, select, signal, subprocess, sys, time, audioop
+import asyncio, base64, json, os, select, signal, subprocess, sys
 from datetime import datetime
-from dotenv import load_dotenv
-import websockets
-
-# --- wake word / mic ---
-from respeaker import Microphone   # ReSpeaker Python library (pocketsphinx-based wake word)
+from dotenv import load_dotenv          # pip install python-dotenv
+import websockets                       # pip install "websockets>=11,<13"
 
 load_dotenv(override=True)
 
@@ -19,96 +16,57 @@ if not API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4o-realtime-preview-2024-12-17")
 URL   = f"wss://api.openai.com/v1/realtime?model={MODEL}"
 
-OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:1,0" (HEADPHONES)
+OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:3,0"
 OUT_SR     = int(os.getenv("OUT_SR", "24000"))
-MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")  # ReSpeaker capture device for arecord
+MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")
 MIC_SR     = int(os.getenv("MIC_SR", "24000"))
 VOICE      = os.getenv("VOICE", "verse")
-
-WAKEWORD   = os.getenv("WAKEWORD", "respeaker")     # hotword label used by the library
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# ---------- playback ----------
 def spawn_aplay():
     args = ["aplay","-t","raw","-f","S16_LE","-r",str(OUT_SR),"-c","1"]
     if OUT_DEVICE: args += ["-D", OUT_DEVICE]
-    p = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    return p
+    return subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
-# ---------- capture (arecord) ----------
 def spawn_arecord():
     args = ["arecord","-t","raw","-f","S16_LE","-r",str(MIC_SR),"-c","1","-D",MIC_DEVICE]
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-# ---------- wake word (blocking) ----------
-def wait_for_wakeword_blocking(keyword=WAKEWORD):
-    """
-    Blocks until pocketsphinx detects the given keyword via ReSpeaker's Microphone.
-    We only use this to *gate* the start of a real recording; we still capture with arecord.
-    """
-    mic = Microphone()  # uses default I2S/ALSA source internally
-    log(f"Listening for wake word: '{keyword}' ...")
-    while True:
-        try:
-            if mic.wakeup(keyword):
-                log(f"Wake word detected: '{keyword}'")
-                return
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            log(f"[wakeword error] {e}")
-            time.sleep(0.2)
-
-# ---------- record an utterance until silence (blocking) ----------
-def record_until_silence_blocking(max_seconds=15, silence_ms=900, rms_threshold=200):
-    """
-    Uses arecord at MIC_SR (mono, S16_LE). Stops when RMS stays below threshold
-    for ~silence_ms or when max_seconds elapse. Returns raw PCM16 bytes.
-    """
+# ---------- blocking PTT capture (runs in a thread) ----------
+def record_once_blocking():
+    input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
+    print("🎙️  Recording... (press Enter to stop)")
     arec = spawn_arecord()
-    buf = bytearray()
-    start = time.time()
-    last_voice = start
+    audio = bytearray(); total = 0
+    f_arec, f_stdin = arec.stdout, sys.stdin
+
     try:
         while True:
-            chunk = arec.stdout.read(4096)
-            if not chunk:
-                break
-            buf.extend(chunk)
-            # RMS over 16-bit samples (width=2)
-            try:
-                r = audioop.rms(chunk, 2)
-            except Exception:
-                r = 0
-            if r > rms_threshold:
-                last_voice = time.time()
-            if (time.time() - last_voice) * 1000.0 > silence_ms:
-                # stop after trailing silence
+            r,_,_ = select.select([f_arec, f_stdin], [], [], 0.25)
+
+            if f_stdin in r:
+                _ = f_stdin.readline()  # consume newline
+                log("Enter detected → stopping recording.")
                 try: arec.terminate()
-                except Exception: pass
-                # drain pipe
-                while True:
-                    ch = arec.stdout.read(4096)
-                    if not ch: break
-                    buf.extend(ch)
-                break
-            if time.time() - start > max_seconds:
-                try: arec.terminate()
-                except Exception: pass
-                while True:
-                    ch = arec.stdout.read(4096)
-                    if not ch: break
-                    buf.extend(ch)
-                break
+                except Exception as e: log(f"arecord terminate err: {e}")
+
+            if f_arec in r:
+                chunk = f_arec.read(4096)
+                if not chunk:
+                    log("Mic stream closed (EOF).")
+                    break
+                audio.extend(chunk); total += len(chunk)
+                if total and total % (4096*50) == 0:
+                    log(f"Captured {total} bytes so far...")
     finally:
         try: arec.terminate()
         except Exception: pass
-    log(f"Captured {len(buf)} bytes (MIC_SR={MIC_SR} Hz).")
-    return bytes(buf)
 
-# ---------- websocket client ----------
+    log(f"Finished recording. Total audio bytes: {len(audio)}")
+    return bytes(audio)
+
 async def main():
     aplay = spawn_aplay()
 
@@ -120,21 +78,25 @@ async def main():
     ) as ws:
         log("WS connected.")
 
-        # reader task (logs everything, plays audio)
+        session_ready = asyncio.Event()
+
+        # ---- Reader: log everything & stream audio/text ----
         async def ws_reader():
             log("ws_reader started.")
             async for msg in ws:
                 try:
                     evt = json.loads(msg)
                 except Exception:
-                    # binary frames aren't expected; ignore
+                    log(f"<< [binary {len(msg)} bytes]")
                     continue
 
                 t = evt.get("type", "<?>")
-                # trace
-                # log(f"<< {t}")
+                log(f"<< {t}")
 
-                if t in ("response.audio.delta","response.output_audio.delta"):
+                if t == "session.created":
+                    session_ready.set()
+
+                if t in ("response.audio.delta", "response.output_audio.delta"):
                     b64 = evt.get("delta","")
                     if b64:
                         try:
@@ -144,24 +106,24 @@ async def main():
                         except Exception as e:
                             log(f"[audio.decode.error] {e}")
 
-                if t in ("response.text.delta","response.output_text.delta","response.audio_transcript.delta"):
+                if t in ("response.text.delta", "response.output_text.delta"):
                     sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
 
-                if t in ("response.done","response.completed"):
+                if t in ("response.done", "response.completed"):
                     try: aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))
                     except Exception: pass
                     print("\n[response done]")
 
-                if t in ("error","response.error"):
+                if t in ("error", "response.error"):
                     log(f"API error: {evt.get('error')}")
 
+        # Start reader first
         reader_task = asyncio.create_task(ws_reader())
 
-        # Wait for session hello (reader will print 'session.created' when it arrives)
-        # Small grace; most stacks immediately send session.created.
-        await asyncio.sleep(0.05)
+        # Wait up to 5s for session.created (reader will set the event)
+        await asyncio.wait_for(session_ready.wait(), timeout=5)
 
-        # Configure the session once (formats + voice)
+        # ---- Proper session.update (this is what was missing) ----
         await ws.send(json.dumps({
             "type":"session.update",
             "session":{
@@ -173,33 +135,30 @@ async def main():
         }))
         log(">> session.update sent")
 
-        # Quick text probe (visible in console so you know socket is alive)
+        # ---- Text-only probe so you SEE replies immediately ----
         await ws.send(json.dumps({
             "type":"response.create",
             "response":{"modalities":["text"], "instructions":"Reply with READY"}
         }))
         log(">> text-only probe sent")
 
-        # --------------- Wake-word loop ---------------
+        # ---- PTT loop: run blocking capture in a thread ----
         while True:
-            # 1) block until wakeword
-            await asyncio.to_thread(wait_for_wakeword_blocking, WAKEWORD)
+            audio = await asyncio.to_thread(record_once_blocking)
+            if not audio:
+                log("No audio captured, skipping send."); continue
 
-            # 2) capture an utterance until silence
-            print("🎙️  Speak now…")
-            audio = await asyncio.to_thread(record_until_silence_blocking)
-            if not audio or len(audio) < int(MIC_SR * 2 * 0.1):  # <~100 ms
-                log("Too little audio; skipping.")
-                continue
-
-            # 3) send to API
             log("Sending audio to API...")
             await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+
+            chunks = 0
             for i in range(0, len(audio), 8192):
                 b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
                 await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-            await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+                chunks += 1
+            log(f">> appended {chunks} chunks")
 
+            await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
             await ws.send(json.dumps({
                 "type":"response.create",
                 "response":{
@@ -209,9 +168,10 @@ async def main():
             }))
             log("Audio sent, waiting for response...")
 
-        await reader_task  # (never reached)
+        # (never reached)
+        await reader_task
 
-    # cleanup
+    # Cleanup
     try:
         if aplay.stdin: aplay.stdin.close()
     except Exception: pass
