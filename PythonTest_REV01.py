@@ -36,12 +36,6 @@ def spawn_arecord():
 
 # ---------- blocking PTT capture (runs in a thread) ----------
 def record_once_blocking():
-    """
-    Blocking push-to-talk:
-    - Wait for Enter to start
-    - Record until Enter again
-    - Return PCM16 mono bytes
-    """
     input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
     print("🎙️  Recording... (press Enter to stop)")
     arec = spawn_arecord()
@@ -57,7 +51,6 @@ def record_once_blocking():
                 log("Enter detected → stopping recording.")
                 try: arec.terminate()
                 except Exception as e: log(f"arecord terminate err: {e}")
-                # let pipe drain to EOF
 
             if f_arec in r:
                 chunk = f_arec.read(4096)
@@ -85,6 +78,8 @@ async def main():
     ) as ws:
         log("WS connected.")
 
+        session_ready = asyncio.Event()
+
         # ---- Reader: log everything & stream audio/text ----
         async def ws_reader():
             log("ws_reader started.")
@@ -97,6 +92,9 @@ async def main():
 
                 t = evt.get("type", "<?>")
                 log(f"<< {t}")
+
+                if t == "session.created":
+                    session_ready.set()
 
                 if t in ("response.audio.delta", "response.output_audio.delta"):
                     b64 = evt.get("delta","")
@@ -119,30 +117,25 @@ async def main():
                 if t in ("error", "response.error"):
                     log(f"API error: {evt.get('error')}")
 
-        # Start reader first so we don't miss events
+        # Start reader first
         reader_task = asyncio.create_task(ws_reader())
 
-        # Wait for session.created
-        while True:
-            # Let reader task consume; we only watch for the first event here
-            # by peeking via a separate recv would steal frames, so instead
-            # we just sleep until reader prints it (2 small sleeps).
-            await asyncio.sleep(0.05)
-            # You’ll see "<< session.created" in logs from reader when it arrives.
-            # Break after a short grace; the server usually sends it immediately.
-            break
+        # Wait up to 5s for session.created (reader will set the event)
+        await asyncio.wait_for(session_ready.wait(), timeout=5)
 
-        # Configure session
+        # ---- Proper session.update (this is what was missing) ----
         await ws.send(json.dumps({
-            "type":"response.create",
-            "response":{
-                "modalities":["audio","text"],
-                "instructions":"Answer briefly."
-             }
+            "type":"session.update",
+            "session":{
+                "input_audio_format":"pcm16",
+                "output_audio_format":"pcm16",
+                "voice": VOICE,
+                "instructions":"You are a helpful assistant running on a Raspberry Pi. Be brief."
+            }
         }))
         log(">> session.update sent")
 
-        # Text-only probe so the reader can show replies immediately
+        # ---- Text-only probe so you SEE replies immediately ----
         await ws.send(json.dumps({
             "type":"response.create",
             "response":{"modalities":["text"], "instructions":"Reply with READY"}
@@ -170,7 +163,7 @@ async def main():
                 "type":"response.create",
                 "response":{
                     "modalities":["audio","text"],
-                    "instructions":"Answer briefly.",
+                    "instructions":"Answer briefly."
                 }
             }))
             log("Audio sent, waiting for response...")
