@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-# Mic↔Realtime API↔Speaker (ALSA) with thread-based PTT (no event-loop blocking).
+# Realtime API with ReSpeaker wake word + mic.listen() → WAV → TTS reply
 
-import asyncio, base64, json, os, select, signal, subprocess, sys
+import asyncio, base64, json, os, signal, subprocess, sys, threading, types
 from datetime import datetime
-from dotenv import load_dotenv          # pip install python-dotenv
-import websockets                       # pip install "websockets>=11,<13"
+from dotenv import load_dotenv              # pip install python-dotenv
+import websockets                           # pip install "websockets>=11,<13"
+
+# ReSpeaker libs (same technique as your snippet)
+from respeaker import Microphone
+from respeaker.bing_speech_api import BingSpeechAPI
 
 load_dotenv(override=True)
 
-# --- config ---
+# --------- Config ---------
 API_KEY = os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr); sys.exit(1)
@@ -16,56 +20,52 @@ if not API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4o-realtime-preview-2024-12-17")
 URL   = f"wss://api.openai.com/v1/realtime?model={MODEL}"
 
-OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:3,0"
+# Playback device (HAT is input-only; pick a real output like Pi headphones or HDMI)
+OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:1,0"
 OUT_SR     = int(os.getenv("OUT_SR", "24000"))
-MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")
-MIC_SR     = int(os.getenv("MIC_SR", "24000"))
-VOICE      = os.getenv("VOICE", "verse")
 
-def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+VOICE      = os.getenv("VOICE", "verse")
+WAKEWORD   = os.getenv("WAKEWORD", "respeaker")   # the hotword string
+
+def log(msg): print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+# ---------- aplay with stderr logger (helps debug device issues) ----------
+def _pipe_logger(name, pipe):
+    for line in iter(pipe.readline, b''):
+        try: print(f"[{name}] {line.decode().rstrip()}", flush=True)
+        except Exception: pass
 
 def spawn_aplay():
     args = ["aplay","-t","raw","-f","S16_LE","-r",str(OUT_SR),"-c","1"]
     if OUT_DEVICE: args += ["-D", OUT_DEVICE]
-    return subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    threading.Thread(target=_pipe_logger, args=("aplay", p.stderr), daemon=True).start()
+    log("aplay started: " + " ".join(args))
+    return p
 
-def spawn_arecord():
-    args = ["arecord","-t","raw","-f","S16_LE","-r",str(MIC_SR),"-c","1","-D",MIC_DEVICE]
-    return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+# ---------- Capture once using your ReSpeaker technique ----------
+def capture_once_after_wakeword_respeaker(keyword="respeaker"):
+    """
+    Blocks until Microphone().wakeup(keyword) fires, then collects speech
+    with mic.listen() and returns **WAV bytes**, built exactly like your snippet.
+    """
+    mic = Microphone()
+    log(f"Listening for wake word: '{keyword}' ...")
+    while True:
+        if mic.wakeup(keyword):
+            log("Wake word detected.")
+            break
 
-# ---------- blocking PTT capture (runs in a thread) ----------
-def record_once_blocking():
-    input("Press Enter to talk (press Enter again to stop). Ctrl+C to quit.\n")
-    print("🎙️  Recording... (press Enter to stop)")
-    arec = spawn_arecord()
-    audio = bytearray(); total = 0
-    f_arec, f_stdin = arec.stdout, sys.stdin
-
-    try:
-        while True:
-            r,_,_ = select.select([f_arec, f_stdin], [], [], 0.25)
-
-            if f_stdin in r:
-                _ = f_stdin.readline()  # consume newline
-                log("Enter detected → stopping recording.")
-                try: arec.terminate()
-                except Exception as e: log(f"arecord terminate err: {e}")
-
-            if f_arec in r:
-                chunk = f_arec.read(4096)
-                if not chunk:
-                    log("Mic stream closed (EOF).")
-                    break
-                audio.extend(chunk); total += len(chunk)
-                if total and total % (4096*50) == 0:
-                    log(f"Captured {total} bytes so far...")
-    finally:
-        try: arec.terminate()
-        except Exception: pass
-
-    log(f"Finished recording. Total audio bytes: {len(audio)}")
-    return bytes(audio)
+    data = mic.listen()   # bytes OR generator of bytes (PCM)
+    # Build a WAV using the exact helper your snippet used
+    if isinstance(data, types.GeneratorType):
+        parts = [BingSpeechAPI.get_wav_header()]
+        parts.extend(data)
+        wav_bytes = b"".join(parts)
+    else:
+        wav_bytes = BingSpeechAPI.to_wav(data)
+    log(f"Captured {len(wav_bytes)} bytes (WAV).")
+    return wav_bytes
 
 async def main():
     aplay = spawn_aplay()
@@ -80,14 +80,14 @@ async def main():
 
         session_ready = asyncio.Event()
 
-        # ---- Reader: log everything & stream audio/text ----
+        # ---- Reader task: log all events, play audio ----
         async def ws_reader():
             log("ws_reader started.")
             async for msg in ws:
                 try:
                     evt = json.loads(msg)
                 except Exception:
-                    log(f"<< [binary {len(msg)} bytes]")
+                    # not expected to get raw binary frames; ignore quietly
                     continue
 
                 t = evt.get("type", "<?>")
@@ -96,6 +96,7 @@ async def main():
                 if t == "session.created":
                     session_ready.set()
 
+                # audio chunks (new + legacy names)
                 if t in ("response.audio.delta", "response.output_audio.delta"):
                     b64 = evt.get("delta","")
                     if b64:
@@ -106,70 +107,69 @@ async def main():
                         except Exception as e:
                             log(f"[audio.decode.error] {e}")
 
-                if t in ("response.text.delta", "response.output_text.delta"):
+                # live transcript / text deltas
+                if t in ("response.text.delta", "response.output_text.delta", "response.audio_transcript.delta"):
                     sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
 
+                # done (new + legacy)
                 if t in ("response.done", "response.completed"):
-                    try: aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))
+                    try: aplay.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))  # ~100ms silence
                     except Exception: pass
                     print("\n[response done]")
 
+                # errors
                 if t in ("error", "response.error"):
                     log(f"API error: {evt.get('error')}")
 
-        # Start reader first
         reader_task = asyncio.create_task(ws_reader())
 
-        # Wait up to 5s for session.created (reader will set the event)
-        await asyncio.wait_for(session_ready.wait(), timeout=5)
+        # Wait for the server hello
+        try:
+            await asyncio.wait_for(session_ready.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            log("No session.created within 5s — check model/key."); return
 
-        # ---- Proper session.update (this is what was missing) ----
+        # ---- Configure session ONCE (tell the server we send WAV, set voice) ----
         await ws.send(json.dumps({
             "type":"session.update",
             "session":{
-                "input_audio_format":"pcm16",
+                "input_audio_format":"wav",     # IMPORTANT: matches our WAV packaging
                 "output_audio_format":"pcm16",
                 "voice": VOICE,
-                "instructions":"You are a helpful assistant running on a Raspberry Pi. Be brief."
+                "instructions":"You run on a Raspberry Pi inside an AI medical kit. Be brief."
             }
         }))
         log(">> session.update sent")
 
-        # ---- Text-only probe so you SEE replies immediately ----
+        # ---- Quick probe (audio+text) so you can verify playback immediately ----
         await ws.send(json.dumps({
             "type":"response.create",
-            "response":{"modalities":["text"], "instructions":"Reply with READY"}
+            "response":{"modalities":["audio","text"], "instructions":"Say READY."}
         }))
-        log(">> text-only probe sent")
+        log(">> probe sent")
 
-        # ---- PTT loop: run blocking capture in a thread ----
+        # --------------- Wake → listen → send loop ---------------
         while True:
-            audio = await asyncio.to_thread(record_once_blocking)
-            if not audio:
-                log("No audio captured, skipping send."); continue
+            # Use your exact technique, but off the event loop
+            wav = await asyncio.to_thread(capture_once_after_wakeword_respeaker, WAKEWORD)
+            if not wav or len(wav) < 2000:
+                log("Too little audio; skipping."); 
+                continue
 
             log("Sending audio to API...")
             await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-
-            chunks = 0
-            for i in range(0, len(audio), 8192):
-                b64 = base64.b64encode(audio[i:i+8192]).decode("ascii")
+            for i in range(0, len(wav), 8192):
+                b64 = base64.b64encode(wav[i:i+8192]).decode("ascii")
                 await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-                chunks += 1
-            log(f">> appended {chunks} chunks")
-
             await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+
             await ws.send(json.dumps({
                 "type":"response.create",
-                "response":{
-                    "modalities":["audio","text"],
-                    "instructions":"Answer briefly."
-                }
+                "response":{"modalities":["audio","text"], "instructions":"Answer briefly."}
             }))
             log("Audio sent, waiting for response...")
 
-        # (never reached)
-        await reader_task
+        await reader_task  # never reached
 
     # Cleanup
     try:
