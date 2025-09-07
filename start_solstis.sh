@@ -23,7 +23,7 @@ fi
 export $(cat .env | grep -v '^#' | xargs)
 
 # Check if required files exist
-if [ ! -f solstis_voice_pi.py ]; then
+if [ ! -f FullCodeTest.py ]; then
     echo "❌ solstis_voice_pi.py not found!"
     echo "Please make sure the Python script is in the same directory."
     exit 1
@@ -45,4 +45,4 @@ echo ""
 echo "Press Ctrl+C to stop"
 echo ""
 
-python3 solstis_voice_pi.py
+python3 FullCodeTest.py
