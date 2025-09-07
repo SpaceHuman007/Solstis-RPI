@@ -26,8 +26,8 @@ OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:1,0"
 OUT_SR     = int(os.getenv("OUT_SR", "24000"))
 
 VOICE      = os.getenv("VOICE", "verse")
-WAKEWORD   = os.getenv("WAKEWORD", "solstis")
-USER_NAME  = os.getenv("USER_NAME", "User")
+WAKEWORD   = os.getenv("WAKEWORD", "computer")
+USER_NAME  = os.getenv("USER_NAME", "Shaniqua")
 
 def log(msg): print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
