@@ -362,116 +362,51 @@ async def main():
     conversation_started = False
 
     try:
-        async with websockets.connect(
-            URL,
-            extra_headers=[("Authorization", f"Bearer {API_KEY}"),
-                           ("OpenAI-Beta", "realtime=v1")],
-            max_size=16*1024*1024,
-        ) as ws:
-            ws_connection = ws
-            log("WS connected.")
-
-            session_ready = asyncio.Event()
-
-            # ---- Reader task: log & play everything ----
-            async def ws_reader():
-                log("ws_reader started.")
-                async for msg in ws:
-                    try:
-                        evt = json.loads(msg)
-                    except Exception:
-                        # (Binary frames not expected here)
-                        continue
-
-                    t = evt.get("type", "<?>")
-                    log(f"<< {t}")
-
-                    if t == "session.created":
-                        session_ready.set()
-
-                    if t in ("response.audio.delta", "response.output_audio.delta"):
-                        b64 = evt.get("delta","")
-                        if b64:
-                            try:
-                                pcm = base64.b64decode(b64)
-                                try: aplay_process.stdin.write(pcm)
-                                except BrokenPipeError: pass
-                            except Exception as e:
-                                log(f"[audio.decode.error] {e}")
-
-                    if t in ("response.text.delta", "response.output_text.delta", "response.audio_transcript.delta"):
-                        sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
-
-                    if t in ("response.done", "response.completed"):
-                        try: aplay_process.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))  # ~100 ms silence
-                        except Exception: pass
-                        print("\n[response done]")
-
-                    if t in ("error", "response.error"):
-                        log(f"API error: {evt.get('error')}")
-
-            reader_task = asyncio.create_task(ws_reader())
-
-            # Wait up to 5s for the server hello
-            try:
-                await asyncio.wait_for(session_ready.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                log("No session.created within 5s — check MODEL/key."); return
-
-            # ---- Configure the session ONCE (pcm16 in/out; set voice) ----
-            await ws.send(json.dumps({
-                "type":"session.update",
-                "session":{
-                    "input_audio_format":"pcm16",
-                    "output_audio_format":"pcm16",
-                    "voice": VOICE,
-                    "instructions": get_system_prompt()
-                }
-            }))
-            log(">> session.update sent")
-
-            # ---- Wait for wake word before sending initial greeting ----
-            log("Waiting for wake word before starting conversation...")
-            pcm = await asyncio.to_thread(capture_audio_after_wakeword)
-            if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
-                log("Too little audio; skipping.")
-                return
-
-            log("Sending audio to API...")
-            await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-            for i in range(0, len(pcm), 8192):
-                b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
-                await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-            await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
-
-            await ws.send(json.dumps({
-                "type":"response.create",
-                "response":{"modalities":["audio","text"], "instructions":"Give the opening greeting message."}
-            }))
-            log("Audio sent, waiting for response...")
-            conversation_started = True
-
-            # ---- Wake → capture → send loop ----
-            while True:
-                pcm = await asyncio.to_thread(capture_audio_after_wakeword)
-                if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
-                    log("Too little audio; skipping.")
-                    continue
-
-                log("Sending audio to API...")
-                await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-                for i in range(0, len(pcm), 8192):
-                    b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
-                    await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-                await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
-
-                await ws.send(json.dumps({
-                    "type":"response.create",
-                    "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant."}
-                }))
-                log("Audio sent, waiting for response...")
-
-            await reader_task  # never reached
+        # Create headers for the websocket connection
+        headers = [
+            ("Authorization", f"Bearer {API_KEY}"),
+            ("OpenAI-Beta", "realtime=v1")
+        ]
+        
+        # Try different websockets connection methods for compatibility
+        try:
+            # Method 1: Try with extra_headers (newer websockets versions)
+            async with websockets.connect(
+                URL,
+                extra_headers=headers,
+                max_size=16*1024*1024,
+            ) as ws:
+                ws_connection = ws
+                log("WS connected (with extra_headers).")
+                await handle_websocket_session(ws)
+        except TypeError as e:
+            if "extra_headers" in str(e):
+                log("extra_headers not supported, trying alternative method...")
+                # Method 2: Try with additional_headers (older websockets versions)
+                try:
+                    async with websockets.connect(
+                        URL,
+                        additional_headers=headers,
+                        max_size=16*1024*1024,
+                    ) as ws:
+                        ws_connection = ws
+                        log("WS connected (with additional_headers).")
+                        await handle_websocket_session(ws)
+                except TypeError as e2:
+                    if "additional_headers" in str(e2):
+                        log("Headers not supported, trying basic connection...")
+                        # Method 3: Basic connection without headers (will need to send auth in first message)
+                        async with websockets.connect(
+                            URL,
+                            max_size=16*1024*1024,
+                        ) as ws:
+                            ws_connection = ws
+                            log("WS connected (basic).")
+                            await handle_websocket_session(ws)
+                    else:
+                        raise e2
+            else:
+                raise e
 
     except Exception as e:
         log(f"Error in main: {e}")
@@ -485,6 +420,109 @@ async def main():
             if aplay_process:
                 aplay_process.terminate()
         except Exception: pass
+
+async def handle_websocket_session(ws):
+    """Handle the websocket session once connected"""
+    session_ready = asyncio.Event()
+
+    # ---- Reader task: log & play everything ----
+    async def ws_reader():
+        log("ws_reader started.")
+        async for msg in ws:
+            try:
+                evt = json.loads(msg)
+            except Exception:
+                # (Binary frames not expected here)
+                continue
+
+            t = evt.get("type", "<?>")
+            log(f"<< {t}")
+
+            if t == "session.created":
+                session_ready.set()
+
+            if t in ("response.audio.delta", "response.output_audio.delta"):
+                b64 = evt.get("delta","")
+                if b64:
+                    try:
+                        pcm = base64.b64decode(b64)
+                        try: aplay_process.stdin.write(pcm)
+                        except BrokenPipeError: pass
+                    except Exception as e:
+                        log(f"[audio.decode.error] {e}")
+
+            if t in ("response.text.delta", "response.output_text.delta", "response.audio_transcript.delta"):
+                sys.stdout.write(evt.get("delta","")); sys.stdout.flush()
+
+            if t in ("response.done", "response.completed"):
+                try: aplay_process.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))  # ~100 ms silence
+                except Exception: pass
+                print("\n[response done]")
+
+            if t in ("error", "response.error"):
+                log(f"API error: {evt.get('error')}")
+
+    reader_task = asyncio.create_task(ws_reader())
+
+    # Wait up to 5s for the server hello
+    try:
+        await asyncio.wait_for(session_ready.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        log("No session.created within 5s — check MODEL/key."); return
+
+    # ---- Configure the session ONCE (pcm16 in/out; set voice) ----
+    await ws.send(json.dumps({
+        "type":"session.update",
+        "session":{
+            "input_audio_format":"pcm16",
+            "output_audio_format":"pcm16",
+            "voice": VOICE,
+            "instructions": get_system_prompt()
+        }
+    }))
+    log(">> session.update sent")
+
+    # ---- Wait for wake word before sending initial greeting ----
+    log("Waiting for wake word before starting conversation...")
+    pcm = await asyncio.to_thread(capture_audio_after_wakeword)
+    if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
+        log("Too little audio; skipping.")
+        return
+
+    log("Sending audio to API...")
+    await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+    for i in range(0, len(pcm), 8192):
+        b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
+        await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+    await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+
+    await ws.send(json.dumps({
+        "type":"response.create",
+        "response":{"modalities":["audio","text"], "instructions":"Give the opening greeting message."}
+    }))
+    log("Audio sent, waiting for response...")
+
+    # ---- Wake → capture → send loop ----
+    while True:
+        pcm = await asyncio.to_thread(capture_audio_after_wakeword)
+        if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
+            log("Too little audio; skipping.")
+            continue
+
+        log("Sending audio to API...")
+        await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+        for i in range(0, len(pcm), 8192):
+            b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
+            await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+        await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+
+        await ws.send(json.dumps({
+            "type":"response.create",
+            "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant."}
+        }))
+        log("Audio sent, waiting for response...")
+
+    await reader_task  # never reached
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
