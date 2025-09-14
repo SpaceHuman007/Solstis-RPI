@@ -29,15 +29,15 @@ for i in range(strip.numPixels()):
         strip.setPixelColor(i, 0)
 strip.show()
 
-for i in range (675,725):
-        strip.setPixelColor(i,Color(0,240,255))
+#for i in range (250,275):
+#        strip.setPixelColor(i,Color(0,240,255))
 
 # Range 2
-for i in range(400, 450):
-    strip.setPixelColor(i, Color(0, 240, 255))
+#for i in range(150, 175):
+#    strip.setPixelColor(i, Color(0, 240, 255))
 
 # Range 3
-for i in range(200, 250):
+for i in range(50,75):
     strip.setPixelColor(i, Color(0, 240, 255))
 
 strip.show()
