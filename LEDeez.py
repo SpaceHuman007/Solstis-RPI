@@ -29,7 +29,7 @@ for i in range(strip.numPixels()):
         strip.setPixelColor(i, 0)
 strip.show()
 
-for i in range (200,250):
+for i in range (250,300):
         strip.setPixelColor(i,Color(0,240,255))
 strip.show()
 
