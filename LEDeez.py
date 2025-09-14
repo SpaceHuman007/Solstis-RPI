@@ -37,11 +37,10 @@ strip.show()
 #    strip.setPixelColor(i, Color(0, 240, 255))
 
 # Range 3
-for i in range (700,725):
+for i in range (525,600):
     strip.setPixelColor(i, Color(0, 240, 255))
 
 strip.show()
-
 
 
 # keep on for 5 seconds
