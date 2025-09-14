@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Solstis Voice Assistant for Raspberry Pi 4
+# Solstis Voice Assistant for Raspberry Pi 4 - Fixed Version
 # ReSpeaker wake word → mic.listen() → PCM16 @ 24k → OpenAI Realtime → aplay
 
 import asyncio, base64, json, os, signal, subprocess, sys, threading, time, io, wave, types, audioop
@@ -21,12 +21,12 @@ if not API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4o-realtime-preview")
 URL   = f"wss://api.openai.com/v1/realtime?model={MODEL}"
 
-# Playback device: pick a REAL output (headphones/HDMI/USB DAC), not the ReSpeaker card
+# Playback device: try different options
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")     # e.g. "plughw:1,0"
 OUT_SR     = int(os.getenv("OUT_SR", "24000"))
 
 VOICE      = os.getenv("VOICE", "verse")
-WAKEWORD   = os.getenv("WAKEWORD", "computer")
+WAKEWORD   = os.getenv("WAKEWORD", "hello")
 USER_NAME  = os.getenv("USER_NAME", "Shaniqua")
 
 def log(msg): print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -135,15 +135,33 @@ def _pipe_logger(name, pipe):
         except Exception: pass
 
 def spawn_aplay():
-    args = ["aplay","-t","raw","-f","S16_LE","-r",str(OUT_SR),"-c","1"]
-    if OUT_DEVICE: args += ["-D", OUT_DEVICE]
-    p = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    threading.Thread(target=_pipe_logger, args=("aplay", p.stderr), daemon=True).start()
-    log("aplay started: " + " ".join(args))
-    return p
+    # Try different audio devices
+    devices_to_try = [
+        OUT_DEVICE,  # User specified
+        "plughw:1,0",  # Common ReSpeaker output
+        "plughw:0,0",  # Default device
+        None  # System default
+    ]
+    
+    for device in devices_to_try:
+        if device is None:
+            args = ["aplay","-t","raw","-f","S16_LE","-r",str(OUT_SR),"-c","1"]
+        else:
+            args = ["aplay","-t","raw","-f","S16_LE","-r",str(OUT_SR),"-c","1","-D", device]
+        
+        try:
+            p = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            threading.Thread(target=_pipe_logger, args=("aplay", p.stderr), daemon=True).start()
+            log(f"aplay started successfully with device: {device or 'default'}")
+            return p
+        except Exception as e:
+            log(f"Failed to start aplay with device {device}: {e}")
+            continue
+    
+    raise RuntimeError("Could not start aplay with any audio device")
 
 # ---------- Capture using your ReSpeaker technique, return PCM16 @ 24k ----------
-def capture_pcm16_after_wakeword_respeaker(keyword="solstis", dst_hz=24000):
+def capture_pcm16_after_wakeword_respeaker(keyword="hello", dst_hz=24000):
     """
     1) Blocks until Microphone().wakeup(keyword) triggers.
     2) Uses mic.listen() to collect speech.
@@ -151,15 +169,29 @@ def capture_pcm16_after_wakeword_respeaker(keyword="solstis", dst_hz=24000):
     """
     try:
         mic = Microphone()
+        log(f"Microphone initialized successfully")
     except Exception as e:
         raise RuntimeError("ReSpeaker Microphone() failed. Make sure pocketsphinx/respeaker are installed.") from e
 
     log(f"Listening for wake word: '{keyword}' ...")
+    log("Say the wake word clearly and wait...")
+    
+    attempt_count = 0
     while True:
-        if mic.wakeup(keyword):
-            log("Wake word detected.")
-            break
+        attempt_count += 1
+        if attempt_count % 100 == 0:  # Print every 100 attempts
+            log(f"Still listening... (attempt {attempt_count})")
+        
+        try:
+            if mic.wakeup(keyword):
+                log(f"✅ Wake word '{keyword}' detected!")
+                break
+        except Exception as e:
+            log(f"Error in wake word detection: {e}")
+            time.sleep(0.1)
+            continue
 
+    log("Wake word detected, now listening for speech...")
     data = mic.listen()  # bytes OR a generator of raw PCM frames
 
     # Step 1: get PCM16 mono + its source sample rate
