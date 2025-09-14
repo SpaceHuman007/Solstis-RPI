@@ -10,7 +10,7 @@ from rpi_ws281x import *
 import argparse
 
 # LED strip configuration:
-LED_COUNT      = 480     # Number of LED pixels.
+LED_COUNT      = 700     # Number of LED pixels.
 LED_PIN        = 13      # GPIO pin connected to the pixels (10 uses SPI /dev/spidev0.0).
 LED_FREQ_HZ    = 800000  # LED signal frequency in hertz (usually 800khz)
 LED_DMA        = 10      # DMA channel to use for generating signal (try 10)
@@ -29,7 +29,7 @@ for i in range(strip.numPixels()):
         strip.setPixelColor(i, 0)
 strip.show()
 
-for i in range (450,480):
+for i in range (600,630):
         strip.setPixelColor(i,Color(0,240,255))
 strip.show()
 
