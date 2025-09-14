@@ -37,7 +37,7 @@ strip.show()
 #    strip.setPixelColor(i, Color(0, 240, 255))
 
 # Range 3
-for i in range(175,200):
+for i in range(250,325):
     strip.setPixelColor(i, Color(0, 240, 255))
 
 strip.show()
