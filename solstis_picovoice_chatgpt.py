@@ -844,7 +844,7 @@ async def handle_websocket_session(ws):
     log("Sending opening greeting message...")
     await ws.send(json.dumps({
         "type":"response.create",
-        "response":{"modalities":["audio","text"], "instructions":"Give the opening greeting message."}
+        "response":{"modalities":["audio","text"], "instructions":"Give the opening greeting message in English."}
     }))
     log("Opening message sent, waiting for response...")
 
@@ -864,7 +864,7 @@ async def handle_websocket_session(ws):
 
     await ws.send(json.dumps({
         "type":"response.create",
-        "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant."}
+        "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
     }))
     log("Audio sent, waiting for response...")
 
@@ -889,7 +889,7 @@ async def handle_websocket_session(ws):
 
                 await ws.send(json.dumps({
                     "type":"response.create",
-                    "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant."}
+                    "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
                 }))
                 log("Audio sent, waiting for response...")
             else:
@@ -921,7 +921,7 @@ async def handle_websocket_session(ws):
 
             await ws.send(json.dumps({
                 "type":"response.create",
-                "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant."}
+                "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
             }))
             log("Audio sent, waiting for response...")
 
