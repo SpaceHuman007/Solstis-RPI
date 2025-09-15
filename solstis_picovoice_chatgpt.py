@@ -66,6 +66,13 @@ LED_INVERT = os.getenv("LED_INVERT", "false").lower() == "true"
 LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
 LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
 
+# LED pulsing (speaking indicator) config
+SPEAK_LEDS_START = int(os.getenv("SPEAK_LEDS_START", "0"))
+SPEAK_LEDS_END   = int(os.getenv("SPEAK_LEDS_END", "30"))
+SPEAK_COLOR_R    = int(os.getenv("SPEAK_COLOR_R", "0"))
+SPEAK_COLOR_G    = int(os.getenv("SPEAK_COLOR_G", "180"))
+SPEAK_COLOR_B    = int(os.getenv("SPEAK_COLOR_B", "255"))
+
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -95,6 +102,8 @@ LED_MAPPINGS = {
 
 # Global LED strip object
 led_strip = None
+speak_pulse_thread = None
+speak_pulse_stop = threading.Event()
 
 def init_led_strip():
     """Initialize the LED strip"""
@@ -125,6 +134,50 @@ def clear_all_leds():
         led_strip.show()
     except Exception as e:
         log(f"Error clearing LEDs: {e}")
+
+def _pulse_range_once(start_idx, end_idx, r, g, b, brightness):
+    if not LED_ENABLED or not led_strip:
+        return
+    try:
+        for i in range(start_idx, end_idx + 1):
+            if i < led_strip.numPixels():
+                led_strip.setPixelColor(i, Color(int(r*brightness), int(g*brightness), int(b*brightness)))
+        led_strip.show()
+    except Exception as e:
+        log(f"Error during pulse frame: {e}")
+
+def _speak_pulser_loop():
+    start_idx = max(0, SPEAK_LEDS_START)
+    end_idx = max(start_idx, SPEAK_LEDS_END)
+    r, g, b = SPEAK_COLOR_R, SPEAK_COLOR_G, SPEAK_COLOR_B
+    t = 0.0
+    try:
+        while not speak_pulse_stop.is_set() and LED_ENABLED and led_strip:
+            brightness = 0.6 + 0.4 * (0.5 * (1 + math.sin(t)))
+            _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
+            t += 0.25
+            speak_pulse_stop.wait(0.08)
+    except Exception as e:
+        log(f"Speak pulser error: {e}")
+
+def start_speak_pulse():
+    global speak_pulse_thread
+    if not LED_ENABLED or not led_strip:
+        return
+    try:
+        speak_pulse_stop.clear()
+        if speak_pulse_thread and speak_pulse_thread.is_alive():
+            return
+        speak_pulse_thread = threading.Thread(target=_speak_pulser_loop, daemon=True)
+        speak_pulse_thread.start()
+    except Exception as e:
+        log(f"Failed to start speak pulser: {e}")
+
+def stop_speak_pulse():
+    try:
+        speak_pulse_stop.set()
+    except Exception:
+        pass
 
 def light_item_leds(item_name, color=(0, 240, 255)):
     """Light up LEDs for a specific item"""
@@ -796,6 +849,11 @@ async def handle_websocket_session(ws):
                 if b64:
                     try:
                         pcm = base64.b64decode(b64)
+                        # Start LED speaking pulse on first audio delta
+                        try:
+                            start_speak_pulse()
+                        except Exception:
+                            pass
                         try: aplay_process.stdin.write(pcm)
                         except BrokenPipeError: pass
                     except Exception as e:
@@ -810,6 +868,11 @@ async def handle_websocket_session(ws):
                 try: aplay_process.stdin.write(bytes([0] * (OUT_SR * 2 // 10)))  # ~100 ms silence
                 except Exception: pass
                 print("\n[response done]")
+                # Stop LED speaking pulse when response is done
+                try:
+                    stop_speak_pulse()
+                except Exception:
+                    pass
                 
                 # Parse the complete response for item mentions and light LEDs
                 if current_response_text.strip():
