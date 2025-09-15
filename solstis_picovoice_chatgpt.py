@@ -67,11 +67,13 @@ LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
 LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
 
 # LED pulsing (speaking indicator) config
-SPEAK_LEDS_START = int(os.getenv("SPEAK_LEDS_START", "30"))
-SPEAK_LEDS_END   = int(os.getenv("SPEAK_LEDS_END", "60"))
-SPEAK_COLOR_R    = int(os.getenv("SPEAK_COLOR_R", "0"))
-SPEAK_COLOR_G    = int(os.getenv("SPEAK_COLOR_G", "180"))
-SPEAK_COLOR_B    = int(os.getenv("SPEAK_COLOR_B", "255"))
+SPEAK_LEDS_START1 = int(os.getenv("SPEAK_LEDS_START1", "640"))
+SPEAK_LEDS_END1   = int(os.getenv("SPEAK_LEDS_END1", "665"))
+SPEAK_LEDS_START2 = int(os.getenv("SPEAK_LEDS_START2", "685"))
+SPEAK_LEDS_END2   = int(os.getenv("SPEAK_LEDS_END2", "730"))
+SPEAK_COLOR_R     = int(os.getenv("SPEAK_COLOR_R", "0"))
+SPEAK_COLOR_G     = int(os.getenv("SPEAK_COLOR_G", "180"))
+SPEAK_COLOR_B     = int(os.getenv("SPEAK_COLOR_B", "255"))
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -147,14 +149,19 @@ def _pulse_range_once(start_idx, end_idx, r, g, b, brightness):
         log(f"Error during pulse frame: {e}")
 
 def _speak_pulser_loop():
-    start_idx = max(0, SPEAK_LEDS_START)
-    end_idx = max(start_idx, SPEAK_LEDS_END)
+    # Define two ranges to pulse
+    ranges = [
+        (max(0, SPEAK_LEDS_START1), max(SPEAK_LEDS_START1, SPEAK_LEDS_END1)),
+        (max(0, SPEAK_LEDS_START2), max(SPEAK_LEDS_START2, SPEAK_LEDS_END2))
+    ]
     r, g, b = SPEAK_COLOR_R, SPEAK_COLOR_G, SPEAK_COLOR_B
     t = 0.0
     try:
         while not speak_pulse_stop.is_set() and LED_ENABLED and led_strip:
             brightness = 0.6 + 0.4 * (0.5 * (1 + math.sin(t)))
-            _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
+            # Pulse both ranges
+            for start_idx, end_idx in ranges:
+                _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
             t += 0.25
             speak_pulse_stop.wait(0.08)
     except Exception as e:
