@@ -52,7 +52,8 @@ MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum
 
 # Continuous listening config
 CONTINUOUS_MODE_TIMEOUT = float(os.getenv("CONTINUOUS_MODE_TIMEOUT", "30.0"))  # seconds before returning to wake word mode
-CONTINUOUS_MODE_ENABLED = os.getenv("CONTINUOUS_MODE_ENABLED", "true").lower() == "true"
+# CONTINUOUS_MODE_ENABLED = os.getenv("CONTINUOUS_MODE_ENABLED", "true").lower() == "true"
+CONTINUOUS_MODE_ENABLED = False  # Disabled - wake word only
 
 # LED Control config
 LED_ENABLED = os.getenv("LED_ENABLED", "true").lower() == "true" and LED_CONTROL_AVAILABLE
@@ -869,61 +870,61 @@ async def handle_websocket_session(ws):
     log("Audio sent, waiting for response...")
 
     # ---- Main conversation loop ----
-    conversation_active = True
-    last_activity_time = time.time()
+    # conversation_active = True
+    # last_activity_time = time.time()
     
     while True:
-        if CONTINUOUS_MODE_ENABLED and conversation_active:
-            # Continuous listening mode - no wake word required
-            log("Continuous listening mode active...")
-            pcm = await asyncio.to_thread(capture_audio_continuously)
-            
-            if pcm and len(pcm) >= int(OUT_SR * 2 * 0.1):  # ~100 ms min
-                last_activity_time = time.time()
-                log("Sending audio to API...")
-                await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-                for i in range(0, len(pcm), 8192):
-                    b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
-                    await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-                await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+        # if CONTINUOUS_MODE_ENABLED and conversation_active:
+        #     # Continuous listening mode - no wake word required
+        #     log("Continuous listening mode active...")
+        #     pcm = await asyncio.to_thread(capture_audio_continuously)
+        #     
+        #     if pcm and len(pcm) >= int(OUT_SR * 2 * 0.1):  # ~100 ms min
+        #         last_activity_time = time.time()
+        #         log("Sending audio to API...")
+        #         await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+        #         for i in range(0, len(pcm), 8192):
+        #             b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
+        #             await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+        #         await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
+        #
+        #         await ws.send(json.dumps({
+        #             "type":"response.create",
+        #             "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
+        #         }))
+        #         log("Audio sent, waiting for response...")
+        #     else:
+        #         # Check if we should return to wake word mode due to timeout
+        #         if time.time() - last_activity_time > CONTINUOUS_MODE_TIMEOUT:
+        #             log(f"Continuous mode timeout ({CONTINUOUS_MODE_TIMEOUT}s), returning to wake word mode...")
+        #             conversation_active = False
+        #         else:
+        #             log("No audio captured, continuing to listen...")
+        #             await asyncio.sleep(0.1)  # Brief pause before trying again
+        # else:
+        # Wake word mode - require wake word for each interaction
+        log("Wake word mode - waiting for wake word...")
+        pcm = await asyncio.to_thread(capture_audio_after_wakeword)
+        if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
+            log("Too little audio; skipping.")
+            continue
 
-                await ws.send(json.dumps({
-                    "type":"response.create",
-                    "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
-                }))
-                log("Audio sent, waiting for response...")
-            else:
-                # Check if we should return to wake word mode due to timeout
-                if time.time() - last_activity_time > CONTINUOUS_MODE_TIMEOUT:
-                    log(f"Continuous mode timeout ({CONTINUOUS_MODE_TIMEOUT}s), returning to wake word mode...")
-                    conversation_active = False
-                else:
-                    log("No audio captured, continuing to listen...")
-                    await asyncio.sleep(0.1)  # Brief pause before trying again
-        else:
-            # Wake word mode - require wake word for each interaction
-            log("Wake word mode - waiting for wake word...")
-            pcm = await asyncio.to_thread(capture_audio_after_wakeword)
-            if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
-                log("Too little audio; skipping.")
-                continue
+        # Reset to continuous mode after wake word detection
+        # conversation_active = True
+        # last_activity_time = time.time()
+        
+        log("Sending audio to API...")
+        await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
+        for i in range(0, len(pcm), 8192):
+            b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
+            await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
+        await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
 
-            # Reset to continuous mode after wake word detection
-            conversation_active = True
-            last_activity_time = time.time()
-            
-            log("Sending audio to API...")
-            await ws.send(json.dumps({"type":"input_audio_buffer.clear"}))
-            for i in range(0, len(pcm), 8192):
-                b64 = base64.b64encode(pcm[i:i+8192]).decode("ascii")
-                await ws.send(json.dumps({"type":"input_audio_buffer.append","audio": b64}))
-            await ws.send(json.dumps({"type":"input_audio_buffer.commit"}))
-
-            await ws.send(json.dumps({
-                "type":"response.create",
-                "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
-            }))
-            log("Audio sent, waiting for response...")
+        await ws.send(json.dumps({
+            "type":"response.create",
+            "response":{"modalities":["audio","text"], "instructions":"Answer briefly as Solstis medical assistant, in English."}
+        }))
+        log("Audio sent, waiting for response...")
 
     await reader_task  # never reached
 
