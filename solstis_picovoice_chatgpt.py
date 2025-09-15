@@ -61,7 +61,7 @@ LED_COUNT = int(os.getenv("LED_COUNT", "788"))  # Number of LED pixels
 LED_PIN = int(os.getenv("LED_PIN", "13"))  # GPIO pin connected to the pixels
 LED_FREQ_HZ = int(os.getenv("LED_FREQ_HZ", "800000"))  # LED signal frequency
 LED_DMA = int(os.getenv("LED_DMA", "10"))  # DMA channel
-LED_BRIGHTNESS = int(os.getenv("LED_BRIGHTNESS", "30"))  # LED brightness (0-255)
+LED_BRIGHTNESS = int(os.getenv("LED_BRIGHTNESS", "70"))  # LED brightness (0-255)
 LED_INVERT = os.getenv("LED_INVERT", "false").lower() == "true"
 LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
 LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
