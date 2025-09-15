@@ -67,8 +67,8 @@ LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
 LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
 
 # LED pulsing (speaking indicator) config
-SPEAK_LEDS_START = int(os.getenv("SPEAK_LEDS_START", "0"))
-SPEAK_LEDS_END   = int(os.getenv("SPEAK_LEDS_END", "30"))
+SPEAK_LEDS_START = int(os.getenv("SPEAK_LEDS_START", "30"))
+SPEAK_LEDS_END   = int(os.getenv("SPEAK_LEDS_END", "60"))
 SPEAK_COLOR_R    = int(os.getenv("SPEAK_COLOR_R", "0"))
 SPEAK_COLOR_G    = int(os.getenv("SPEAK_COLOR_G", "180"))
 SPEAK_COLOR_B    = int(os.getenv("SPEAK_COLOR_B", "255"))
