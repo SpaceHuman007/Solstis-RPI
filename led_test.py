@@ -70,6 +70,38 @@ def light_item_leds(strip, item_name, color=(0, 240, 255)):
     
     strip.show()
 
+def light_custom_range(strip, start, end, color=(0, 240, 255)):
+    """Light up a custom range of LEDs"""
+    if start < 0 or end >= strip.numPixels() or start > end:
+        print(f"Invalid range: {start}-{end}. Valid range: 0-{strip.numPixels()-1}")
+        return
+    
+    print(f"Lighting LEDs {start}-{end}")
+    
+    # Clear all LEDs first
+    clear_all_leds(strip)
+    
+    # Light up the specific range
+    for i in range(start, end + 1):
+        strip.setPixelColor(i, Color(*color))
+    
+    strip.show()
+
+def light_single_led(strip, led_number, color=(0, 240, 255)):
+    """Light up a single LED"""
+    if led_number < 0 or led_number >= strip.numPixels():
+        print(f"Invalid LED number: {led_number}. Valid range: 0-{strip.numPixels()-1}")
+        return
+    
+    print(f"Lighting LED {led_number}")
+    
+    # Clear all LEDs first
+    clear_all_leds(strip)
+    
+    # Light up the specific LED
+    strip.setPixelColor(led_number, Color(*color))
+    strip.show()
+
 def test_all_items(strip):
     """Test all items one by one"""
     print("Testing all kit items...")
@@ -80,6 +112,19 @@ def test_all_items(strip):
         time.sleep(3)  # Show for 3 seconds
         clear_all_leds(strip)
         time.sleep(1)  # Brief pause between items
+
+def scan_led_range(strip, start_range, end_range, step=10, duration=2):
+    """Scan through a range of LEDs to help identify physical locations"""
+    print(f"Scanning LEDs {start_range}-{end_range} in steps of {step}")
+    
+    for i in range(start_range, end_range + 1, step):
+        print(f"Lighting LEDs {i}-{i+step-1}")
+        light_custom_range(strip, i, min(i+step-1, end_range))
+        time.sleep(duration)
+        clear_all_leds(strip)
+        time.sleep(0.5)
+    
+    print("Scan complete!")
 
 def main():
     print("🩺 Solstis LED Test Script")
@@ -100,10 +145,13 @@ def main():
         print("\nOptions:")
         print("1. Test all items sequentially")
         print("2. Test specific item")
-        print("3. Show LED mapping")
-        print("4. Exit")
+        print("3. Test custom LED range")
+        print("4. Test single LED")
+        print("5. Scan LED range (helpful for mapping)")
+        print("6. Show LED mapping")
+        print("7. Exit")
         
-        choice = input("\nEnter your choice (1-4): ").strip()
+        choice = input("\nEnter your choice (1-7): ").strip()
         
         if choice == "1":
             test_all_items(strip)
@@ -127,11 +175,40 @@ def main():
                 print("Invalid input")
         
         elif choice == "3":
+            try:
+                start = int(input(f"Enter start LED (0-{LED_COUNT-1}): "))
+                end = int(input(f"Enter end LED (0-{LED_COUNT-1}): "))
+                light_custom_range(strip, start, end)
+                input("Press Enter to turn off LEDs...")
+                clear_all_leds(strip)
+            except ValueError:
+                print("Invalid input - please enter numbers only")
+        
+        elif choice == "4":
+            try:
+                led_num = int(input(f"Enter LED number (0-{LED_COUNT-1}): "))
+                light_single_led(strip, led_num)
+                input("Press Enter to turn off LEDs...")
+                clear_all_leds(strip)
+            except ValueError:
+                print("Invalid input - please enter a number only")
+        
+        elif choice == "5":
+            try:
+                start_range = int(input(f"Enter start of scan range (0-{LED_COUNT-1}): "))
+                end_range = int(input(f"Enter end of scan range (0-{LED_COUNT-1}): "))
+                step = int(input("Enter step size (default 10): ") or "10")
+                duration = float(input("Enter duration per step in seconds (default 2): ") or "2")
+                scan_led_range(strip, start_range, end_range, step, duration)
+            except ValueError:
+                print("Invalid input - please enter numbers only")
+        
+        elif choice == "6":
             print("\nLED Mappings:")
             for item, (start, end) in LED_MAPPINGS.items():
                 print(f"{item}: LEDs {start}-{end}")
         
-        elif choice == "4":
+        elif choice == "7":
             break
         
         else:
