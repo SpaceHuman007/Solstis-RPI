@@ -2,8 +2,10 @@
 # Install with: pip install -r requirements.txt
 
 # Core dependencies
-websockets>=12.0.0
 python-dotenv>=1.0.0
+
+# OpenAI API for GPT-4o mini and TTS
+openai>=1.0.0
 
 # Picovoice for wake word detection
 pvporcupine>=3.0.0

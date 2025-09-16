@@ -16,7 +16,7 @@ LED_CHANNEL = 1
 
 # LED mapping for kit items (same as in main script)
 LED_MAPPINGS = {
-    "band-aids": (0, 25),
+    "band-aids": (45, 100),
     "gauze pads": (26, 50),
     "roll gauze": (51, 75),
     "abd pad": (76, 100),
