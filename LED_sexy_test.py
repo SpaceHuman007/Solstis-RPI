@@ -4,6 +4,7 @@
 
 import time
 from rpi_ws281x import *
+import argparse
 
 # ----------------------- STRIP CONFIG -----------------------
 LED_COUNT      = 788     # Total pixels
