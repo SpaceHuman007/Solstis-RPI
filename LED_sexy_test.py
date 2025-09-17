@@ -129,3 +129,7 @@ def main():
         clear_strip(strip)
         print("\nStopped by user (Ctrl+C). Goodbye!")
 
+if __name__ == "__main__":
+    print("[boot] starting LED menu...", flush=True)
+    main()
+
