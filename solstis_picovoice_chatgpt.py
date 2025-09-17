@@ -79,27 +79,27 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 # ---------- LED Control System ----------
-# LED mapping for kit items (you'll need to adjust these ranges based on your physical layout)
+# LED mapping for kit items with multiple ranges per item
 LED_MAPPINGS = {
-    "band-aids": (0, 25),
-    "gauze pads": (26, 50),
-    "roll gauze": (51, 75),
-    "abd pad": (76, 100),
-    "medical tape": (101, 125),
-    "antibiotic ointment": (126, 150),
-    "tweezers": (151, 175),
-    "trauma shears": (176, 200),
-    "quickclot gauze": (201, 225),
-    "hemostatic wipe": (201, 225), 
-    "burn gel dressing": (226, 250),
-    "burn spray": (251, 275),
-    "sting bite relief": (276, 300),
-    "eye wash bottle": (301, 325),
-    "glucose gel": (326, 350),
-    "electrolyte powder": (351, 375),
-    "ace bandage": (376, 400),
-    "cold pack": (401, 425),
-    "triangle bandage": (426, 450),
+    "solstis middle": [(643, 663), (696, 727)],
+    "quickclot": [(62, 86), (270, 293), (264, 264)],
+    "burn spray": [(41, 62), (234, 269), (226, 226)],
+    "burn dressing": [(241, 262), (220, 226), (601, 629)],
+    "4 gauze pads": [(581, 623), (636, 642), (720, 727)],
+    "cold pack": [(706, 719), (199, 212), (581, 594), (553, 567)],
+    "electrolyte": [(691, 705), (523, 567)],
+    "antibiotic": [(493, 548), (186, 193)],
+    "tweezers": [(464, 517), (455, 456), (420, 422)],
+    "scissors": [(461, 488), (153, 182)],
+    "eyewash": [(130, 153), (439, 460)],
+    "bandaids": [(402, 438), (126, 130)],
+    "triangle bandage": [(390, 418), (679, 690), (519, 523)],
+    "medical tape": [(382, 396), (335, 341), (111, 120)],
+    "elastic bandage": [(318, 352)],
+    "bite relief": [(661, 678), (386, 389), (370, 377)],
+    "2 roll gauze": [(370, 381), (648, 661), (341, 356)],
+    "abd": [(294, 326), (86, 102)],
+    "oral gel": [(303, 317), (275, 285), (630, 647), (263, 264), (352, 356)],
 }
 
 # Global LED strip object
@@ -187,7 +187,7 @@ def stop_speak_pulse():
         pass
 
 def light_item_leds(item_name, color=(0, 240, 255)):
-    """Light up LEDs for a specific item"""
+    """Light up LEDs for a specific item (supports multiple ranges)"""
     if not LED_ENABLED or not led_strip:
         log(f"LED control not available - would light: {item_name}")
         return
@@ -203,17 +203,19 @@ def light_item_leds(item_name, color=(0, 240, 255)):
         log(f"No LED mapping found for item: {item_name}")
         return
     
-    start, end = LED_MAPPINGS[item_key]
-    log(f"Lighting LEDs {start}-{end} for item: {item_name}")
+    ranges = LED_MAPPINGS[item_key]
+    log(f"Lighting LEDs for item: {item_name}")
     
     try:
         # Clear all LEDs first
         clear_all_leds()
         
-        # Light up the specific range
-        for i in range(start, end + 1):
-            if i < led_strip.numPixels():
-                led_strip.setPixelColor(i, Color(*color))
+        # Light up all ranges for this item
+        for range_idx, (start, end) in enumerate(ranges):
+            log(f"  Range {range_idx + 1}: LEDs {start}-{end}")
+            for i in range(start, end + 1):
+                if i < led_strip.numPixels():
+                    led_strip.setPixelColor(i, Color(*color))
         
         led_strip.show()
         
@@ -234,20 +236,20 @@ def parse_response_for_items(response_text):
     
     # List of items to look for in the response
     items_to_check = [
-        "band-aid", "band aid", "bandaid",
-        "gauze", "gauze pad", "gauze pads",
-        "roll gauze",
+        "band-aid", "band aid", "bandaid", "bandaids",
+        "gauze", "gauze pad", "gauze pads", "4 gauze pads",
+        "roll gauze", "2 roll gauze",
         "abd pad", "abd",
         "tape", "medical tape",
         "antibiotic", "ointment",
         "tweezers",
-        "shears", "trauma shears",
+        "shears", "trauma shears", "scissors",
         "quickclot", "hemostatic",
         "burn gel", "burn dressing",
         "burn spray",
         "sting", "bite relief",
-        "eye wash", "eye wash bottle",
-        "glucose", "glucose gel",
+        "eye wash", "eye wash bottle", "eyewash",
+        "glucose", "glucose gel", "oral gel",
         "electrolyte", "electrolyte powder",
         "ace bandage", "elastic bandage",
         "cold pack",

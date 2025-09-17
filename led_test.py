@@ -14,27 +14,27 @@ LED_BRIGHTNESS = 30
 LED_INVERT = False
 LED_CHANNEL = 1
 
-# LED mapping for kit items (same as in main script)
+# LED mapping for kit items with multiple ranges per item
 LED_MAPPINGS = {
-    "band-aids": (45, 100),
-    "gauze pads": (26, 50),
-    "roll gauze": (51, 75),
-    "abd pad": (76, 100),
-    "medical tape": (101, 125),
-    "antibiotic ointment": (126, 150),
-    "tweezers": (151, 175),
-    "trauma shears": (176, 200),
-    "quickclot gauze": (201, 225),
-    "hemostatic wipe": (201, 225),
-    "burn gel dressing": (226, 250),
-    "burn spray": (251, 275),
-    "sting bite relief": (276, 300),
-    "eye wash bottle": (301, 325),
-    "glucose gel": (326, 350),
-    "electrolyte powder": (351, 375),
-    "ace bandage": (376, 400),
-    "cold pack": (401, 425),
-    "triangle bandage": (426, 450),
+    "solstis middle": [(643, 663), (696, 727)],
+    "quickclot": [(62, 86), (270, 293), (264, 264)],
+    "burn spray": [(41, 62), (234, 269), (226, 226)],
+    "burn dressing": [(241, 262), (220, 226), (601, 629)],
+    "4 gauze pads": [(581, 623), (636, 642), (720, 727)],
+    "cold pack": [(706, 719), (199, 212), (581, 594), (553, 567)],
+    "electrolyte": [(691, 705), (523, 567)],
+    "antibiotic": [(493, 548), (186, 193)],
+    "tweezers": [(464, 517), (455, 456), (420, 422)],
+    "scissors": [(461, 488), (153, 182)],
+    "eyewash": [(130, 153), (439, 460)],
+    "bandaids": [(402, 438), (126, 130)],
+    "triangle bandage": [(390, 418), (679, 690), (519, 523)],
+    "medical tape": [(382, 396), (335, 341), (111, 120)],
+    "elastic bandage": [(318, 352)],
+    "bite relief": [(661, 678), (386, 389), (370, 377)],
+    "2 roll gauze": [(370, 381), (648, 661), (341, 356)],
+    "abd": [(294, 326), (86, 102)],
+    "oral gel": [(303, 317), (275, 285), (630, 647), (263, 264), (352, 356)],
 }
 
 def init_led_strip():
@@ -52,21 +52,23 @@ def clear_all_leds(strip):
     strip.show()
 
 def light_item_leds(strip, item_name, color=(0, 240, 255)):
-    """Light up LEDs for a specific item"""
+    """Light up LEDs for a specific item (supports multiple ranges)"""
     if item_name not in LED_MAPPINGS:
         print(f"No LED mapping found for item: {item_name}")
         return
     
-    start, end = LED_MAPPINGS[item_name]
-    print(f"Lighting LEDs {start}-{end} for item: {item_name}")
+    ranges = LED_MAPPINGS[item_name]
+    print(f"Lighting LEDs for item: {item_name}")
     
     # Clear all LEDs first
     clear_all_leds(strip)
     
-    # Light up the specific range
-    for i in range(start, end + 1):
-        if i < strip.numPixels():
-            strip.setPixelColor(i, Color(*color))
+    # Light up all ranges for this item
+    for range_idx, (start, end) in enumerate(ranges):
+        print(f"  Range {range_idx + 1}: LEDs {start}-{end}")
+        for i in range(start, end + 1):
+            if i < strip.numPixels():
+                strip.setPixelColor(i, Color(*color))
     
     strip.show()
 
@@ -106,8 +108,10 @@ def test_all_items(strip):
     """Test all items one by one"""
     print("Testing all kit items...")
     
-    for item_name, (start, end) in LED_MAPPINGS.items():
-        print(f"\nTesting: {item_name} (LEDs {start}-{end})")
+    for item_name, ranges in LED_MAPPINGS.items():
+        print(f"\nTesting: {item_name}")
+        for range_idx, (start, end) in enumerate(ranges):
+            print(f"  Range {range_idx + 1}: LEDs {start}-{end}")
         light_item_leds(strip, item_name)
         time.sleep(3)  # Show for 3 seconds
         clear_all_leds(strip)
@@ -205,8 +209,9 @@ def main():
         
         elif choice == "6":
             print("\nLED Mappings:")
-            for item, (start, end) in LED_MAPPINGS.items():
-                print(f"{item}: LEDs {start}-{end}")
+            for item, ranges in LED_MAPPINGS.items():
+                range_strs = [f"{start}-{end}" for start, end in ranges]
+                print(f"{item}: {', '.join(range_strs)}")
         
         elif choice == "7":
             break
