@@ -65,12 +65,12 @@ LED_DMA = int(os.getenv("LED_DMA", "10"))  # DMA channel
 LED_BRIGHTNESS = int(os.getenv("LED_BRIGHTNESS", "70"))  # LED brightness (0-255)
 LED_INVERT = os.getenv("LED_INVERT", "false").lower() == "true"
 LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
-LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
+LED_DURATION = float(os.getenv("LED_DURATION", "10.0"))  # How long to keep LEDs on
 
-# LED pulsing (speaking indicator) config
+# LED pulsing (speaking indicator) config - Solstis middle section
 SPEAK_LEDS_START1 = int(os.getenv("SPEAK_LEDS_START1", "643"))
 SPEAK_LEDS_END1   = int(os.getenv("SPEAK_LEDS_END1", "663"))
-SPEAK_LEDS_START2 = int(os.getenv("SPEAK_LEDS_START2", "796"))
+SPEAK_LEDS_START2 = int(os.getenv("SPEAK_LEDS_START2", "696"))
 SPEAK_LEDS_END2   = int(os.getenv("SPEAK_LEDS_END2", "727"))
 SPEAK_COLOR_R     = int(os.getenv("SPEAK_COLOR_R", "0"))
 SPEAK_COLOR_G     = int(os.getenv("SPEAK_COLOR_G", "180"))
@@ -150,10 +150,10 @@ def _pulse_range_once(start_idx, end_idx, r, g, b, brightness):
         log(f"Error during pulse frame: {e}")
 
 def _speak_pulser_loop():
-    # Define two ranges to pulse
+    # Define two ranges to pulse - Solstis middle section
     ranges = [
-        (max(0, SPEAK_LEDS_START1), max(SPEAK_LEDS_START1, SPEAK_LEDS_END1)),
-        (max(0, SPEAK_LEDS_START2), max(SPEAK_LEDS_START2, SPEAK_LEDS_END2))
+        (SPEAK_LEDS_START1, SPEAK_LEDS_END1),
+        (SPEAK_LEDS_START2, SPEAK_LEDS_END2)
     ]
     r, g, b = SPEAK_COLOR_R, SPEAK_COLOR_G, SPEAK_COLOR_B
     t = 0.0
@@ -165,6 +165,15 @@ def _speak_pulser_loop():
                 _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
             t += 0.25
             speak_pulse_stop.wait(0.08)
+        
+        # Clear the speaking LEDs when pulsing stops
+        if LED_ENABLED and led_strip:
+            for start_idx, end_idx in ranges:
+                for i in range(start_idx, end_idx + 1):
+                    if i < led_strip.numPixels():
+                        led_strip.setPixelColor(i, 0)
+            led_strip.show()
+            
     except Exception as e:
         log(f"Speak pulser error: {e}")
 
@@ -220,12 +229,8 @@ def light_item_leds(item_name, color=(0, 240, 255)):
         
         led_strip.show()
         
-        # Schedule to turn off after LED_DURATION seconds
-        def turn_off_leds():
-            time.sleep(LED_DURATION)
-            clear_all_leds()
-        
-        threading.Thread(target=turn_off_leds, daemon=True).start()
+        # Don't automatically turn off - let the speaking pulse control handle it
+        # The LEDs will stay lit until the response is complete
         
     except Exception as e:
         log(f"Error lighting LEDs for {item_name}: {e}")
@@ -801,6 +806,10 @@ async def main():
                 stop_speak_pulse()
             
             print(f"Solstis: {response_text}")
+            
+            # Clear LEDs after response is complete
+            if LED_ENABLED:
+                clear_all_leds()
 
     except Exception as e:
         log(f"Error in main: {e}")
