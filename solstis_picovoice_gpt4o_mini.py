@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import openai
 import tempfile
 import requests
-import openai
+import pvporcupine  # pip install pvporcupine
 
 # LED Control imports
 try:
@@ -68,10 +68,10 @@ LED_CHANNEL = int(os.getenv("LED_CHANNEL", "1"))  # LED channel
 LED_DURATION = float(os.getenv("LED_DURATION", "5.0"))  # How long to keep LEDs on
 
 # LED pulsing (speaking indicator) config
-SPEAK_LEDS_START1 = int(os.getenv("SPEAK_LEDS_START1", "640"))
-SPEAK_LEDS_END1   = int(os.getenv("SPEAK_LEDS_END1", "665"))
-SPEAK_LEDS_START2 = int(os.getenv("SPEAK_LEDS_START2", "700"))
-SPEAK_LEDS_END2   = int(os.getenv("SPEAK_LEDS_END2", "730"))
+SPEAK_LEDS_START1 = int(os.getenv("SPEAK_LEDS_START1", "643"))
+SPEAK_LEDS_END1   = int(os.getenv("SPEAK_LEDS_END1", "663"))
+SPEAK_LEDS_START2 = int(os.getenv("SPEAK_LEDS_START2", "796"))
+SPEAK_LEDS_END2   = int(os.getenv("SPEAK_LEDS_END2", "727"))
 SPEAK_COLOR_R     = int(os.getenv("SPEAK_COLOR_R", "0"))
 SPEAK_COLOR_G     = int(os.getenv("SPEAK_COLOR_G", "180"))
 SPEAK_COLOR_B     = int(os.getenv("SPEAK_COLOR_B", "255"))
