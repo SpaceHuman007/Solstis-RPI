@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import openai
 import tempfile
 import requests
+import openai
 
 # LED Control imports
 try:
