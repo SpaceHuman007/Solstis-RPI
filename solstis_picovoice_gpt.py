@@ -32,9 +32,9 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr); sys.exit(1)
 
-MODEL = os.getenv("MODEL", "gpt-4o-mini")
+MODEL = os.getenv("MODEL", "gpt-4-turbo")
 TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
-TTS_VOICE = os.getenv("TTS_VOICE", "coral")
+TTS_VOICE = os.getenv("TTS_VOICE", "shimmer")
 
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
