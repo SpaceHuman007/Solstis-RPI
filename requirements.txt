@@ -13,6 +13,9 @@ pvporcupine>=3.0.0
 # GPIO control for reed switch
 RPi.GPIO>=0.7.1
 
+# LED strip control for WS281x/NeoPixel LEDs
+rpi_ws281x>=4.3.0
+
 # Audio processing (optional - we use ALSA directly)
 # pyaudio>=0.2.11
 
