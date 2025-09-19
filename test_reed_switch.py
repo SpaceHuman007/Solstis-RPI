@@ -19,7 +19,7 @@ except ImportError:
 
 # Reed switch config
 REED_SWITCH_ENABLED = os.getenv("REED_SWITCH_ENABLED", "true").lower() == "true" and GPIO_AVAILABLE
-REED_SWITCH_PIN = int(os.getenv("REED_SWITCH_PIN", "18"))  # GPIO pin connected to reed switch
+REED_SWITCH_PIN = int(os.getenv("REED_SWITCH_PIN", "16"))  # GPIO pin connected to reed switch
 REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "100"))  # Debounce time in milliseconds
 
 def log(msg):
