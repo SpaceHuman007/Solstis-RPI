@@ -5,7 +5,7 @@
    Use `wpa_passphrase` to append your network to the config:
 
    ```bash
-   sudo sh -c "wpa_passphrase 'TestWifi' 'TestPassword' >> /etc/wpa_supplicant/wpa_supplicant.conf"
+   sudo sh -c 'wpa_passphrase "TestWifi" "TestPassword" >> /etc/wpa_supplicant/wpa_supplicant.conf'
    ```
 
 2. **Verify the network is saved**
