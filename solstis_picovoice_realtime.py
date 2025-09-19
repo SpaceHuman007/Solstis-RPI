@@ -39,10 +39,6 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # ChatGPT audio output sample rate
 VOICE = os.getenv("VOICE", "verse")
 USER_NAME = os.getenv("USER_NAME", "User")
 
-# Beep config for wake word detection
-BEEP_HZ = int(os.getenv("BEEP_HZ", "880"))
-BEEP_MS = int(os.getenv("BEEP_MS", "200"))
-BEEP_AMPL = int(os.getenv("BEEP_AMPL", "0"))  # 0..32767
 
 # Speech detection config
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # RMS threshold for speech detection
@@ -482,14 +478,6 @@ def spawn_aplay(rate):
         args += ["-D", OUT_DEVICE]
     return subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
-def make_beep(sr, hz, ms, ampl):
-    """Generate a simple sine beep as raw PCM16 bytes."""
-    n = int(sr * ms / 1000.0)
-    data = bytearray()
-    for i in range(n):
-        v = int(ampl * math.sin(2 * math.pi * hz * (i / sr)))
-        data += struct.pack("<h", v)
-    return bytes(data)
 
 def capture_audio_continuously():
     """
@@ -543,12 +531,6 @@ def capture_audio_continuously():
                 if not speech_detected:
                     log("Speech detected, continuing capture...")
                     speech_detected = True
-                    # Play beep to indicate speech detection
-                    try:
-                        aplay.stdin.write(beep)
-                        aplay.stdin.flush()
-                    except BrokenPipeError:
-                        pass
                 silence_start_time = None  # Reset silence timer
             else:
                 # No speech detected
@@ -624,9 +606,8 @@ def capture_audio_after_wakeword():
         log(f"Mic device: {MIC_DEVICE} @ {mic_sr} Hz | frame {frame_len} samples ({frame_bytes} bytes)")
         arec = spawn_arecord(mic_sr, MIC_DEVICE)
 
-        # Prepare speaker & beep
+        # Prepare speaker
         aplay = spawn_aplay(OUT_SR)
-        beep = make_beep(OUT_SR, BEEP_HZ, BEEP_MS, BEEP_AMPL)
 
         log("Listening for wake word...")
         leftover = b""
@@ -648,11 +629,6 @@ def capture_audio_after_wakeword():
                 if r >= 0:
                     log("Wake word detected! 🔊")
                     wake_word_detected = True
-                    try:
-                        aplay.stdin.write(beep)
-                        aplay.stdin.flush()
-                    except BrokenPipeError:
-                        pass
                     break
             leftover = buf[offset:]
 
