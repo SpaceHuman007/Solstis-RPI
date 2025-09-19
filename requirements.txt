@@ -10,6 +10,9 @@ openai>=1.0.0
 # Picovoice for wake word detection
 pvporcupine>=3.0.0
 
+# GPIO control for reed switch
+RPi.GPIO>=0.7.1
+
 # Audio processing (optional - we use ALSA directly)
 # pyaudio>=0.2.11
 

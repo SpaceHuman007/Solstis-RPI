@@ -10,14 +10,6 @@ import tempfile
 import requests
 import pvporcupine  # pip install pvporcupine
 
-# GPIO imports for reed switch
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-    print("Warning: RPi.GPIO not available. Reed switch functionality disabled.")
-
 # LED Control imports
 try:
     from rpi_ws281x import *
@@ -40,7 +32,7 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr); sys.exit(1)
 
-MODEL = os.getenv("MODEL", "gpt-3.5-turbo")
+MODEL = os.getenv("MODEL", "gpt-4o-mini")
 TTS_MODEL = os.getenv("TTS_MODEL", "tts-1")
 TTS_VOICE = os.getenv("TTS_VOICE", "nova")
 
@@ -83,11 +75,6 @@ SPEAK_LEDS_END2   = int(os.getenv("SPEAK_LEDS_END2", "727"))
 SPEAK_COLOR_R     = int(os.getenv("SPEAK_COLOR_R", "0"))
 SPEAK_COLOR_G     = int(os.getenv("SPEAK_COLOR_G", "180"))
 SPEAK_COLOR_B     = int(os.getenv("SPEAK_COLOR_B", "255"))
-
-# Reed switch config
-REED_SWITCH_ENABLED = os.getenv("REED_SWITCH_ENABLED", "true").lower() == "true" and GPIO_AVAILABLE
-REED_SWITCH_PIN = int(os.getenv("REED_SWITCH_PIN", "16"))  # GPIO pin connected to reed switch
-REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "100"))  # Debounce time in milliseconds
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -282,82 +269,6 @@ def parse_response_for_items(response_text):
             log(f"Found item mention: {item}")
             light_item_leds(item)
             break  # Only light one item at a time
-
-# ---------- Reed Switch Control System ----------
-# Global variables for reed switch state
-box_is_open = False
-reed_switch_initialized = False
-
-def init_reed_switch():
-    """Initialize the reed switch GPIO"""
-    global reed_switch_initialized
-    if not REED_SWITCH_ENABLED:
-        log("Reed switch control disabled")
-        return False
-    
-    try:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(REED_SWITCH_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        reed_switch_initialized = True
-        log(f"Reed switch initialized on GPIO pin {REED_SWITCH_PIN}")
-        return True
-    except Exception as e:
-        log(f"Failed to initialize reed switch: {e}")
-        return False
-
-def cleanup_reed_switch():
-    """Clean up reed switch GPIO"""
-    global reed_switch_initialized
-    if reed_switch_initialized:
-        try:
-            GPIO.cleanup(REED_SWITCH_PIN)
-            reed_switch_initialized = False
-            log("Reed switch GPIO cleaned up")
-        except Exception as e:
-            log(f"Error cleaning up reed switch: {e}")
-
-def read_reed_switch():
-    """Read the current state of the reed switch with debouncing"""
-    if not REED_SWITCH_ENABLED or not reed_switch_initialized:
-        return False
-    
-    try:
-        # Read the switch state (LOW = closed/magnet present, HIGH = open/magnet absent)
-        # For normally open reed switch, LOW means box is closed, HIGH means box is open
-        raw_state = GPIO.input(REED_SWITCH_PIN)
-        
-        # Add simple debouncing by reading multiple times
-        time.sleep(REED_SWITCH_DEBOUNCE_MS / 1000.0)
-        debounced_state = GPIO.input(REED_SWITCH_PIN)
-        
-        # Return True if box is open (HIGH), False if closed (LOW)
-        return debounced_state == GPIO.HIGH
-        
-    except Exception as e:
-        log(f"Error reading reed switch: {e}")
-        return False
-
-def check_box_state_change():
-    """Check if the box state has changed and return the new state"""
-    global box_is_open
-    
-    if not REED_SWITCH_ENABLED:
-        return False, box_is_open
-    
-    current_state = read_reed_switch()
-    
-    if current_state != box_is_open:
-        old_state = box_is_open
-        box_is_open = current_state
-        
-        if box_is_open:
-            log("📦 Box opened - ready for new conversation")
-        else:
-            log("📦 Box closed - conversation reset")
-        
-        return True, box_is_open
-    
-    return False, box_is_open
 
 # ---------- Solstis System Prompt for Standard Kit ----------
 def get_system_prompt():
@@ -748,7 +659,7 @@ def transcribe_audio(audio_data):
         return ""
 
 def generate_response(user_message, conversation_history=None):
-    """Generate response using GPT"""
+    """Generate response using GPT-4o mini"""
     try:
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=API_KEY)
@@ -822,9 +733,6 @@ def signal_handler(signum, frame):
     if LED_ENABLED:
         clear_all_leds()
     
-    # Clean up reed switch
-    cleanup_reed_switch()
-    
     sys.exit(0)
 
 async def main():
@@ -834,107 +742,74 @@ async def main():
     if LED_ENABLED:
         init_led_strip()
     
-    # Initialize reed switch
-    if REED_SWITCH_ENABLED:
-        init_reed_switch()
-    
     # Initialize OpenAI client
     openai.api_key = API_KEY
     
     conversation_started = False
-    opening_message_sent = False
 
     try:
-        log("Waiting for box to open...")
+        # Send opening greeting
+        log("Sending opening greeting...")
+        opening_message = f"Hey {USER_NAME}. I'm here to help. If this is life-threatening, please call 9-1-1 now. Otherwise, I'll guide you step by step. Can you tell me what happened?"
         
-        # Main loop - wait for box to open
+        # Convert to speech and play
+        audio_data = text_to_speech(opening_message)
+        if audio_data:
+            start_speak_pulse()
+            play_audio(audio_data)
+            stop_speak_pulse()
+        
+        print(f"Solstis: {opening_message}")
+        
+        # Main conversation loop
         while True:
-            # Check for box state changes
-            state_changed, is_open = check_box_state_change()
-            
-            if state_changed and is_open and not opening_message_sent:
-                # Box just opened - send opening message
-                log("Box opened - sending opening greeting...")
-                opening_message = f"Hey {USER_NAME}. I'm here to help. If this is life-threatening, please call 9-1-1 now. Otherwise, I'll guide you step by step. Can you tell me what happened?"
-                
-                # Convert to speech and play
-                audio_data = text_to_speech(opening_message)
-                if audio_data:
-                    start_speak_pulse()
-                    play_audio(audio_data)
-                    stop_speak_pulse()
-                
-                print(f"Solstis: {opening_message}")
-                opening_message_sent = True
-                conversation_started = True
-                
-            elif state_changed and not is_open:
-                # Box just closed - reset conversation state
-                log("Box closed - resetting conversation state")
-                conversation_history = []
-                opening_message_sent = False
-                conversation_started = False
-                
-                # Clear LEDs
-                if LED_ENABLED:
-                    clear_all_leds()
-                
-                log("Waiting for box to open...")
+            # Wait for wake word before starting conversation
+            log("Wake word mode - waiting for wake word...")
+            pcm = await asyncio.to_thread(capture_audio_after_wakeword)
+            if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
+                log("Too little audio; skipping.")
                 continue
             
-            # If box is open and conversation has started, handle voice interaction
-            if is_open and conversation_started:
-                # Wait for wake word before starting conversation
-                log("Wake word mode - waiting for wake word...")
-                pcm = await asyncio.to_thread(capture_audio_after_wakeword)
-                if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
-                    log("Too little audio; skipping.")
-                    continue
-                
-                # Transcribe audio
-                log("Transcribing audio...")
-                user_message = transcribe_audio(pcm)
-                if not user_message:
-                    log("No transcription received")
-                    continue
-                
-                print(f"User: {user_message}")
-                
-                # Generate response
-                log("Generating response...")
-                response_text = generate_response(user_message, conversation_history)
-                if not response_text:
-                    log("No response generated")
-                    continue
-                
-                # Update conversation history
-                conversation_history.append({"role": "user", "content": user_message})
-                conversation_history.append({"role": "assistant", "content": response_text})
-                
-                # Keep conversation history manageable (last 10 exchanges)
-                if len(conversation_history) > 20:
-                    conversation_history = conversation_history[-20:]
-                
-                # Parse response for LED control
-                parse_response_for_items(response_text)
-                
-                # Convert response to speech and play
-                log("Converting response to speech...")
-                audio_data = text_to_speech(response_text)
-                if audio_data:
-                    start_speak_pulse()
-                    play_audio(audio_data)
-                    stop_speak_pulse()
-                
-                print(f"Solstis: {response_text}")
-                
-                # Clear LEDs after response is complete
-                if LED_ENABLED:
-                    clear_all_leds()
+            # Transcribe audio
+            log("Transcribing audio...")
+            user_message = transcribe_audio(pcm)
+            if not user_message:
+                log("No transcription received")
+                continue
             
-            else:
-                # Box is closed or conversation hasn't started - wait a bit before checking again
-                await asyncio.sleep(0.1)
+            print(f"User: {user_message}")
+            
+            # Generate response
+            log("Generating response...")
+            response_text = generate_response(user_message, conversation_history)
+            if not response_text:
+                log("No response generated")
+                continue
+            
+            # Update conversation history
+            conversation_history.append({"role": "user", "content": user_message})
+            conversation_history.append({"role": "assistant", "content": response_text})
+            
+            # Keep conversation history manageable (last 10 exchanges)
+            if len(conversation_history) > 20:
+                conversation_history = conversation_history[-20:]
+            
+            # Parse response for LED control
+            parse_response_for_items(response_text)
+            
+            # Convert response to speech and play
+            log("Converting response to speech...")
+            audio_data = text_to_speech(response_text)
+            if audio_data:
+                start_speak_pulse()
+                play_audio(audio_data)
+                stop_speak_pulse()
+            
+            print(f"Solstis: {response_text}")
+            
+            # Clear LEDs after response is complete
+            if LED_ENABLED:
+                clear_all_leds()
 
     except Exception as e:
         log(f"Error in main: {e}")
@@ -942,12 +817,11 @@ async def main():
         # Cleanup
         if LED_ENABLED:
             clear_all_leds()
-        cleanup_reed_switch()
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    log(f"🩺 Solstis Voice Assistant with Picovoice and GPT starting...")
+    log(f"🩺 Solstis Voice Assistant with Picovoice and GPT-4o Mini starting...")
     log(f"User: {USER_NAME}")
     log(f"Model: {MODEL}")
     log(f"TTS Model: {TTS_MODEL}")
@@ -956,7 +830,6 @@ if __name__ == "__main__":
     log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD}, Silence Duration: {SILENCE_DURATION}s")
     log(f"Continuous Mode: {'Enabled' if CONTINUOUS_MODE_ENABLED else 'Disabled'}, Timeout: {CONTINUOUS_MODE_TIMEOUT}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}, Duration: {LED_DURATION}s")
-    log(f"Reed Switch: {'Enabled' if REED_SWITCH_ENABLED else 'Disabled'}, Pin: {REED_SWITCH_PIN}, Debounce: {REED_SWITCH_DEBOUNCE_MS}ms")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
