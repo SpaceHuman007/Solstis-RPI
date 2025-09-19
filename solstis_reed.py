@@ -88,6 +88,190 @@ REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "100"))  # De
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
+# ---------- Enhanced Keyword Detection System ----------
+# Comprehensive keyword mapping for medical kit items
+KEYWORD_MAPPINGS = {
+    "bandaids": {
+        "keywords": [
+            "band-aid", "band aid", "bandaid", "bandaids", "adhesive bandage", 
+            "sticky bandage", "wound cover", "cut cover", "small bandage"
+        ],
+        "description": "Adhesive bandages for small cuts and wounds"
+    },
+    "4 gauze pads": {
+        "keywords": [
+            "gauze", "gauze pad", "gauze pads", "4 gauze pads", "4x4 gauze", 
+            "square gauze", "sterile gauze", "dressing pad", "wound pad",
+            "gauze square", "medical gauze", "absorbent pad"
+        ],
+        "description": "4x4 inch sterile gauze pads for wound dressing"
+    },
+    "2 roll gauze": {
+        "keywords": [
+            "roll gauze", "2 roll gauze", "gauze roll", "rolled gauze", 
+            "gauze wrap", "bandage roll", "wrapping gauze", "medical wrap"
+        ],
+        "description": "2 inch roll gauze for wrapping and securing dressings"
+    },
+    "abd": {
+        "keywords": [
+            "abd pad", "abd", "abdominal pad", "large pad", "big pad", 
+            "5x9 pad", "large gauze", "major wound pad", "heavy bleeding pad"
+        ],
+        "description": "5x9 inch ABD pad for large wounds and heavy bleeding"
+    },
+    "medical tape": {
+        "keywords": [
+            "tape", "medical tape", "cloth tape", "adhesive tape", 
+            "surgical tape", "wound tape", "bandage tape", "securing tape"
+        ],
+        "description": "1 inch cloth medical tape for securing dressings"
+    },
+    "antibiotic": {
+        "keywords": [
+            "antibiotic", "ointment", "triple antibiotic", "antibiotic ointment", 
+            "neosporin", "bacitracin", "polysporin", "antiseptic ointment",
+            "wound ointment", "healing ointment", "infection prevention"
+        ],
+        "description": "Triple antibiotic ointment for preventing infection"
+    },
+    "tweezers": {
+        "keywords": [
+            "tweezers", "blunt tweezers", "forceps", "splinter removal", 
+            "debris removal", "foreign object", "tick removal", "splinter tool"
+        ],
+        "description": "Blunt tip tweezers for removing splinters and debris"
+    },
+    "scissors": {
+        "keywords": [
+            "scissors", "shears", "trauma shears", "medical scissors", 
+            "cutting tool", "bandage scissors", "emergency scissors", "safety scissors"
+        ],
+        "description": "Small trauma shears for cutting bandages and clothing"
+    },
+    "quickclot": {
+        "keywords": [
+            "quickclot", "hemostatic", "hemostatic gauze", "bleeding control", 
+            "blood stopper", "clotting agent", "emergency bleeding", "severe bleeding"
+        ],
+        "description": "QuickClot gauze or hemostatic wipe for severe bleeding"
+    },
+    "burn dressing": {
+        "keywords": [
+            "burn gel", "burn dressing", "4x4 burn gel", "burn treatment", 
+            "thermal burn", "heat burn", "burn relief", "cooling gel"
+        ],
+        "description": "4x4 inch burn gel dressing for thermal burns"
+    },
+    "burn spray": {
+        "keywords": [
+            "burn spray", "2 oz burn spray", "spray burn", "burn mist", 
+            "cooling spray", "thermal spray", "burn relief spray"
+        ],
+        "description": "2 oz burn spray for immediate burn relief"
+    },
+    "bite relief": {
+        "keywords": [
+            "sting", "bite relief", "insect bite", "bee sting", "wasp sting", 
+            "ant bite", "mosquito bite", "sting relief", "bite treatment",
+            "itch relief", "sting wipes", "bite wipes"
+        ],
+        "description": "Sting & bite relief wipes for insect bites and stings"
+    },
+    "eyewash": {
+        "keywords": [
+            "eye wash", "eye wash bottle", "eyewash", "eye rinse", "eye irrigation", 
+            "eye flush", "eye cleaning", "foreign object eye", "chemical eye",
+            "eye emergency", "eye decontamination"
+        ],
+        "description": "Mini eye wash bottle for eye irrigation and decontamination"
+    },
+    "oral gel": {
+        "keywords": [
+            "glucose", "glucose gel", "oral gel", "sugar gel", "diabetic emergency", 
+            "low blood sugar", "hypoglycemia", "glucose tube", "oral glucose",
+            "diabetic treatment", "blood sugar emergency"
+        ],
+        "description": "Oral glucose gel for diabetic emergencies and low blood sugar"
+    },
+    "electrolyte": {
+        "keywords": [
+            "electrolyte", "electrolyte powder", "hydration powder", "rehydration", 
+            "dehydration", "salt replacement", "mineral powder", "hydration mix",
+            "electrolyte replacement", "fluid replacement"
+        ],
+        "description": "Electrolyte powder pack for dehydration and rehydration"
+    },
+    "elastic bandage": {
+        "keywords": [
+            "ace bandage", "elastic bandage", "2 inch bandage", "compression bandage", 
+            "wrap bandage", "support bandage", "elastic wrap", "compression wrap"
+        ],
+        "description": "2 inch elastic ace bandage for compression and support"
+    },
+    "cold pack": {
+        "keywords": [
+            "cold pack", "ice pack", "instant cold", "cooling pack", "thermal pack", 
+            "cold therapy", "ice therapy", "swelling reduction", "pain relief cold"
+        ],
+        "description": "Instant cold pack for reducing swelling and pain relief"
+    },
+    "triangle bandage": {
+        "keywords": [
+            "triangle bandage", "triangular bandage", "sling", "arm sling", 
+            "shoulder support", "immobilization", "fracture support", "arm support"
+        ],
+        "description": "Triangle bandage for creating slings and immobilization"
+    }
+}
+
+def detect_mentioned_items(response_text):
+    """
+    Enhanced keyword detection that maps keywords to specific items and logs matches.
+    Returns a list of detected items with their matched keywords.
+    """
+    response_lower = response_text.lower()
+    detected_items = []
+    
+    log("🔍 Analyzing response for medical kit items...")
+    
+    for item_name, item_data in KEYWORD_MAPPINGS.items():
+        matched_keywords = []
+        
+        for keyword in item_data["keywords"]:
+            if keyword in response_lower:
+                matched_keywords.append(keyword)
+        
+        if matched_keywords:
+            detected_items.append({
+                "item": item_name,
+                "matched_keywords": matched_keywords,
+                "description": item_data["description"]
+            })
+            
+            log(f"✅ DETECTED: {item_name}")
+            log(f"   📝 Description: {item_data['description']}")
+            log(f"   🔑 Matched keywords: {', '.join(matched_keywords)}")
+    
+    if not detected_items:
+        log("ℹ️  No medical kit items detected in response")
+    else:
+        log(f"📊 Total items detected: {len(detected_items)}")
+    
+    return detected_items
+
+def log_keyword_mappings():
+    """Log all available keyword mappings for reference"""
+    log("📋 COMPREHENSIVE KEYWORD MAPPINGS:")
+    log("=" * 50)
+    
+    for item_name, item_data in KEYWORD_MAPPINGS.items():
+        log(f"\n🏥 {item_name.upper()}")
+        log(f"   📝 {item_data['description']}")
+        log(f"   🔑 Keywords: {', '.join(item_data['keywords'])}")
+    
+    log("\n" + "=" * 50)
+
 # ---------- LED Control System ----------
 # LED mapping for kit items with multiple ranges per item
 LED_MAPPINGS = {
@@ -249,35 +433,14 @@ def parse_response_for_items(response_text):
     if not LED_ENABLED:
         return
     
-    # List of items to look for in the response
-    items_to_check = [
-        "band-aid", "band aid", "bandaid", "bandaids",
-        "gauze", "gauze pad", "gauze pads", "4 gauze pads",
-        "roll gauze", "2 roll gauze",
-        "abd pad", "abd",
-        "tape", "medical tape",
-        "antibiotic", "ointment",
-        "tweezers",
-        "shears", "trauma shears", "scissors",
-        "quickclot", "hemostatic",
-        "burn gel", "burn dressing",
-        "burn spray",
-        "sting", "bite relief",
-        "eye wash", "eye wash bottle", "eyewash",
-        "glucose", "glucose gel", "oral gel",
-        "electrolyte", "electrolyte powder",
-        "ace bandage", "elastic bandage",
-        "cold pack",
-        "triangle bandage"
-    ]
+    # Use enhanced keyword detection
+    detected_items = detect_mentioned_items(response_text)
     
-    response_lower = response_text.lower()
-    
-    for item in items_to_check:
-        if item in response_lower:
-            log(f"Found item mention: {item}")
-            light_item_leds(item)
-            break  # Only light one item at a time
+    # Light LEDs for the first detected item
+    if detected_items:
+        first_item = detected_items[0]["item"]
+        log(f"Lighting LEDs for detected item: {first_item}")
+        light_item_leds(first_item)
 
 # ---------- Reed Switch Control System ----------
 # Global variables for reed switch state
@@ -929,6 +1092,12 @@ async def main():
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Check for command line arguments
+    if len(sys.argv) > 1 and sys.argv[1] == "--show-keywords":
+        log_keyword_mappings()
+        sys.exit(0)
+    
     log(f"🩺 Solstis Voice Assistant with Picovoice and GPT starting...")
     log(f"User: {USER_NAME}")
     log(f"Model: {MODEL}")
@@ -939,6 +1108,7 @@ if __name__ == "__main__":
     log(f"Continuous Mode: {'Enabled' if CONTINUOUS_MODE_ENABLED else 'Disabled'}, Timeout: {CONTINUOUS_MODE_TIMEOUT}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}, Duration: {LED_DURATION}s")
     log(f"Reed Switch: {'Enabled' if REED_SWITCH_ENABLED else 'Disabled'}, Pin: {REED_SWITCH_PIN}, Debounce: {REED_SWITCH_DEBOUNCE_MS}ms")
+    log(f"💡 Run with --show-keywords to see all keyword mappings")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
