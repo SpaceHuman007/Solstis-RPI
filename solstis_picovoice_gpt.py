@@ -155,7 +155,7 @@ def _speak_pulser_loop():
     t = 0.0
     try:
         while not speak_pulse_stop.is_set() and LED_ENABLED and led_strip:
-            brightness = 0.3 + 0.7 * (0.5 * (1 + math.sin(t)))  # Expanded brightness range: 0.3 to 1.0
+            brightness = 0.1 + 0.3 * (0.5 * (1 + math.sin(t)))
             # Pulse both ranges
             for start_idx, end_idx in ranges:
                 _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
