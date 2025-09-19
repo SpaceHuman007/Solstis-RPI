@@ -91,137 +91,137 @@ def log(msg):
 # ---------- Enhanced Keyword Detection System ----------
 # Comprehensive keyword mapping for medical kit items
 KEYWORD_MAPPINGS = {
-    "bandaids": {
+    "Band-Aids": {
         "keywords": [
             "band-aid", "band aid", "bandaid", "bandaids", "adhesive bandage", 
             "sticky bandage", "wound cover", "cut cover", "small bandage"
         ],
-        "description": "Adhesive bandages for small cuts and wounds"
+        "description": "Band-Aids for small cuts and wounds"
     },
-    "4 gauze pads": {
+    "4\" x 4\" Gauze Pads": {
         "keywords": [
             "gauze", "gauze pad", "gauze pads", "4 gauze pads", "4x4 gauze", 
             "square gauze", "sterile gauze", "dressing pad", "wound pad",
             "gauze square", "medical gauze", "absorbent pad"
         ],
-        "description": "4x4 inch sterile gauze pads for wound dressing"
+        "description": "4\" x 4\" Gauze Pads for wound dressing"
     },
-    "2 roll gauze": {
+    "2\" Roll Gauze": {
         "keywords": [
             "roll gauze", "2 roll gauze", "gauze roll", "rolled gauze", 
             "gauze wrap", "bandage roll", "wrapping gauze", "medical wrap"
         ],
-        "description": "2 inch roll gauze for wrapping and securing dressings"
+        "description": "2\" Roll Gauze for wrapping and securing dressings"
     },
-    "abd": {
+    "5\" x 9\" ABD Pad": {
         "keywords": [
             "abd pad", "abd", "abdominal pad", "large pad", "big pad", 
             "5x9 pad", "large gauze", "major wound pad", "heavy bleeding pad"
         ],
-        "description": "5x9 inch ABD pad for large wounds and heavy bleeding"
+        "description": "5\" x 9\" ABD Pad for large wounds and heavy bleeding"
     },
-    "medical tape": {
+    "Cloth Medical Tape": {
         "keywords": [
             "tape", "medical tape", "cloth tape", "adhesive tape", 
             "surgical tape", "wound tape", "bandage tape", "securing tape"
         ],
-        "description": "1 inch cloth medical tape for securing dressings"
+        "description": "Cloth Medical Tape for securing dressings"
     },
-    "antibiotic": {
+    "Triple Antibiotic Ointment": {
         "keywords": [
             "antibiotic", "ointment", "triple antibiotic", "antibiotic ointment", 
             "neosporin", "bacitracin", "polysporin", "antiseptic ointment",
             "wound ointment", "healing ointment", "infection prevention"
         ],
-        "description": "Triple antibiotic ointment for preventing infection"
+        "description": "Triple Antibiotic Ointment for preventing infection"
     },
-    "tweezers": {
+    "Tweezers": {
         "keywords": [
             "tweezers", "blunt tweezers", "forceps", "splinter removal", 
             "debris removal", "foreign object", "tick removal", "splinter tool"
         ],
-        "description": "Blunt tip tweezers for removing splinters and debris"
+        "description": "Tweezers for removing splinters and debris"
     },
-    "scissors": {
+    "Trauma Shears": {
         "keywords": [
             "scissors", "shears", "trauma shears", "medical scissors", 
             "cutting tool", "bandage scissors", "emergency scissors", "safety scissors"
         ],
-        "description": "Small trauma shears for cutting bandages and clothing"
+        "description": "Trauma Shears for cutting bandages and clothing"
     },
-    "quickclot": {
+    "QuickClot Gauze": {
         "keywords": [
             "quickclot", "hemostatic", "hemostatic gauze", "bleeding control", 
             "blood stopper", "clotting agent", "emergency bleeding", "severe bleeding"
         ],
-        "description": "QuickClot gauze or hemostatic wipe for severe bleeding"
+        "description": "QuickClot Gauze for severe bleeding"
     },
-    "burn dressing": {
+    "Burn Gel Dressing": {
         "keywords": [
             "burn gel", "burn dressing", "4x4 burn gel", "burn treatment", 
             "thermal burn", "heat burn", "burn relief", "cooling gel"
         ],
-        "description": "4x4 inch burn gel dressing for thermal burns"
+        "description": "Burn Gel Dressing for thermal burns"
     },
-    "burn spray": {
+    "Burn Spray": {
         "keywords": [
             "burn spray", "2 oz burn spray", "spray burn", "burn mist", 
             "cooling spray", "thermal spray", "burn relief spray"
         ],
-        "description": "2 oz burn spray for immediate burn relief"
+        "description": "Burn Spray for immediate burn relief"
     },
-    "bite relief": {
+    "Sting & Bite Relief Wipes": {
         "keywords": [
             "sting", "bite relief", "insect bite", "bee sting", "wasp sting", 
             "ant bite", "mosquito bite", "sting relief", "bite treatment",
             "itch relief", "sting wipes", "bite wipes"
         ],
-        "description": "Sting & bite relief wipes for insect bites and stings"
+        "description": "Sting & Bite Relief Wipes for insect bites and stings"
     },
-    "eyewash": {
+    "Mini Eye Wash Bottle": {
         "keywords": [
             "eye wash", "eye wash bottle", "eyewash", "eye rinse", "eye irrigation", 
             "eye flush", "eye cleaning", "foreign object eye", "chemical eye",
             "eye emergency", "eye decontamination"
         ],
-        "description": "Mini eye wash bottle for eye irrigation and decontamination"
+        "description": "Mini Eye Wash Bottle for eye irrigation and decontamination"
     },
-    "oral gel": {
+    "Oral Glucose Gel": {
         "keywords": [
             "glucose", "glucose gel", "oral gel", "sugar gel", "diabetic emergency", 
             "low blood sugar", "hypoglycemia", "glucose tube", "oral glucose",
             "diabetic treatment", "blood sugar emergency"
         ],
-        "description": "Oral glucose gel for diabetic emergencies and low blood sugar"
+        "description": "Oral Glucose Gel for diabetic emergencies and low blood sugar"
     },
-    "electrolyte": {
+    "Electrolyte Powder Pack": {
         "keywords": [
             "electrolyte", "electrolyte powder", "hydration powder", "rehydration", 
             "dehydration", "salt replacement", "mineral powder", "hydration mix",
             "electrolyte replacement", "fluid replacement"
         ],
-        "description": "Electrolyte powder pack for dehydration and rehydration"
+        "description": "Electrolyte Powder Pack for dehydration and rehydration"
     },
-    "elastic bandage": {
+    "Elastic Ace Bandage": {
         "keywords": [
             "ace bandage", "elastic bandage", "2 inch bandage", "compression bandage", 
             "wrap bandage", "support bandage", "elastic wrap", "compression wrap"
         ],
-        "description": "2 inch elastic ace bandage for compression and support"
+        "description": "Elastic Ace Bandage for compression and support"
     },
-    "cold pack": {
+    "Instant Cold Pack": {
         "keywords": [
             "cold pack", "ice pack", "instant cold", "cooling pack", "thermal pack", 
             "cold therapy", "ice therapy", "swelling reduction", "pain relief cold"
         ],
-        "description": "Instant cold pack for reducing swelling and pain relief"
+        "description": "Instant Cold Pack for reducing swelling and pain relief"
     },
-    "triangle bandage": {
+    "Triangle Bandage": {
         "keywords": [
             "triangle bandage", "triangular bandage", "sling", "arm sling", 
             "shoulder support", "immobilization", "fracture support", "arm support"
         ],
-        "description": "Triangle bandage for creating slings and immobilization"
+        "description": "Triangle Bandage for creating slings and immobilization"
     }
 }
 
@@ -276,24 +276,24 @@ def log_keyword_mappings():
 # LED mapping for kit items with multiple ranges per item
 LED_MAPPINGS = {
     "solstis middle": [(643, 663), (696, 727)],
-    "quickclot": [(62, 86), (270, 293), (264, 264)],
-    "burn spray": [(41, 62), (234, 269), (226, 226)],
-    "burn dressing": [(241, 262), (220, 226), (601, 629)],
-    "4 gauze pads": [(581, 623), (636, 642), (720, 727)],
-    "cold pack": [(706, 719), (199, 212), (581, 594), (553, 567)],
-    "electrolyte": [(691, 705), (523, 567)],
-    "antibiotic": [(493, 548), (186, 193)],
-    "tweezers": [(464, 517), (455, 456), (420, 422)],
-    "scissors": [(461, 488), (153, 182)],
-    "eyewash": [(130, 153), (439, 460)],
-    "bandaids": [(402, 438), (126, 130)],
-    "triangle bandage": [(390, 418), (679, 690), (519, 523)],
-    "medical tape": [(382, 396), (335, 341), (111, 120)],
-    "elastic bandage": [(318, 352)],
-    "bite relief": [(661, 678), (386, 389), (370, 377)],
-    "2 roll gauze": [(370, 381), (648, 661), (341, 356)],
-    "abd": [(294, 326), (86, 102)],
-    "oral gel": [(303, 317), (275, 285), (630, 647), (263, 264), (352, 356)],
+    "QuickClot Gauze": [(62, 86), (270, 293), (264, 264)],
+    "Burn Spray": [(41, 62), (234, 269), (226, 226)],
+    "Burn Gel Dressing": [(241, 262), (220, 226), (601, 629)],
+    "4\" x 4\" Gauze Pads": [(581, 623), (636, 642), (720, 727)],
+    "Instant Cold Pack": [(706, 719), (199, 212), (581, 594), (553, 567)],
+    "Electrolyte Powder Pack": [(691, 705), (523, 567)],
+    "Triple Antibiotic Ointment": [(493, 548), (186, 193)],
+    "Tweezers": [(464, 517), (455, 456), (420, 422)],
+    "Trauma Shears": [(461, 488), (153, 182)],
+    "Mini Eye Wash Bottle": [(130, 153), (439, 460)],
+    "Band-Aids": [(402, 438), (126, 130)],
+    "Triangle Bandage": [(390, 418), (679, 690), (519, 523)],
+    "Cloth Medical Tape": [(382, 396), (335, 341), (111, 120)],
+    "Elastic Ace Bandage": [(318, 352)],
+    "Sting & Bite Relief Wipes": [(661, 678), (386, 389), (370, 377)],
+    "2\" Roll Gauze": [(370, 381), (648, 661), (341, 356)],
+    "5\" x 9\" ABD Pad": [(294, 326), (86, 102)],
+    "Oral Glucose Gel": [(303, 317), (275, 285), (630, 647), (263, 264), (352, 356)],
 }
 
 # Global LED strip object
@@ -525,21 +525,21 @@ def get_system_prompt():
     # Standard kit contents
     kit_contents = [
         "Band-Aids",
-        "4\" x 4\" Gauze Pads (5)",
+        "4\" x 4\" Gauze Pads",
         "2\" Roll Gauze",
         "5\" x 9\" ABD Pad",
-        "1\" Cloth Medical Tape",
+        "Cloth Medical Tape",
         "Triple Antibiotic Ointment",
-        "Blunt Tip Tweezers",
-        "Small Trauma Shears",
-        "QuickClot Gauze or Hemostatic Wipe",
-        "4\" x 4\" Burn Gel Dressing",
-        "2 oz Burn Spray",
-        "Sting & Bite Relief Wipes (2)",
-        "Mini Eye Wash Bottle (1)",
+        "Tweezers",
+        "Trauma Shears",
+        "QuickClot Gauze",
+        "Burn Gel Dressing",
+        "Burn Spray",
+        "Sting & Bite Relief Wipes",
+        "Mini Eye Wash Bottle",
         "Oral Glucose Gel",
         "Electrolyte Powder Pack",
-        "2\" Elastic Ace Bandage",
+        "Elastic Ace Bandage",
         "Instant Cold Pack",
         "Triangle Bandage"
     ]
@@ -548,14 +548,35 @@ def get_system_prompt():
     
     return f"""Always speak in English (US). You are Solstis, a calm and supportive AI medical assistant. You help users with first aid using only the items available in their specific kit.
 
-AVAILABLE ITEMS:
+AVAILABLE ITEMS IN YOUR KIT:
 {contents_str}
+
+IMPORTANT: When referencing kit items, use the EXACT names from the list above. For example:
+- Say "Band-Aids" not "bandages" or "adhesive bandages"
+- Say "4\" x 4\" Gauze Pads" not "gauze" or "gauze squares"
+- Say "2\" Roll Gauze" not "roll gauze" or "gauze roll"
+- Say "5\" x 9\" ABD Pad" not "ABD pad" or "large pad"
+- Say "Cloth Medical Tape" not "medical tape" or "tape"
+- Say "Triple Antibiotic Ointment" not "antibiotic ointment" or "ointment"
+- Say "Tweezers" not "forceps" or "tweezers"
+- Say "Trauma Shears" not "scissors" or "shears"
+- Say "QuickClot Gauze" not "hemostatic gauze" or "clotting gauze"
+- Say "Burn Gel Dressing" not "burn dressing" or "burn gel"
+- Say "Burn Spray" not "burn spray" or "cooling spray"
+- Say "Sting & Bite Relief Wipes" not "bite relief" or "sting wipes"
+- Say "Mini Eye Wash Bottle" not "eye wash" or "eyewash"
+- Say "Oral Glucose Gel" not "glucose gel" or "sugar gel"
+- Say "Electrolyte Powder Pack" not "electrolyte powder" or "hydration powder"
+- Say "Elastic Ace Bandage" not "ace bandage" or "elastic bandage"
+- Say "Instant Cold Pack" not "cold pack" or "ice pack"
+- Say "Triangle Bandage" not "triangular bandage" or "sling"
 
 Your role:
 • Be a real-time guide—natural, concise, supportive  
 • Assess for life-threatening danger but don't overreact to common symptoms
 • Give clear, step-by-step instructions for self-treatment first
 • Select only from the current kit (or common home items)  
+• Always use the EXACT item names from the kit contents list above
 • Refer to the item's highlighted space (not "LED compartment")  
 • When sizes differ, avoid inches—say "large X highlighted in blue" vs "small X highlighted in orange"  
 • Only recommend calling 9-1-1 for TRUE emergencies (unconsciousness, severe bleeding, chest pain, etc.)
@@ -592,7 +613,7 @@ CRITICAL SINGLE-STEP RULE:
 - NEVER mention multiple medical items in the same response (e.g., don't say "apply ointment and use a bandage")
 - If multiple steps are needed, give them one at a time and wait for user confirmation
 - Examples of WRONG responses: "Apply antibiotic ointment and then put on a bandage", "Use gauze and tape to secure it"
-- Examples of CORRECT responses: "Apply a thin layer of antibiotic ointment from the highlighted space. Let me know when you're done.", then after confirmation: "Now place a bandage from the highlighted space so the pad covers the cut. Let me know when you're done."
+- Examples of CORRECT responses: "Apply a thin layer of Triple Antibiotic Ointment from the highlighted space. Let me know when you're done.", then after confirmation: "Now place a Band-Aid from the highlighted space so the pad covers the cut. Let me know when you're done."
 
 EMERGENCY ASSESSMENT FRAMEWORK:
 - TRUE EMERGENCIES (call 9-1-1 immediately): Unconsciousness, severe chest pain, severe bleeding that won't stop, difficulty breathing, severe allergic reactions, severed body parts
@@ -606,12 +627,12 @@ IF THE USER CAN'T FIND AN ITEM:
 3) Do not jump to unrelated items unless confirmed.
 
 BANDAGE PLACEMENT—HANDS (DEFAULT TIPS):
-- For small cuts: clean, dry, thin layer of antibiotic ointment if available, center the pad over the cut, smooth adhesive around the skin, avoid wrapping too tight, check movement and circulation. "Let me know when you're ready."
-- For finger joints: place the pad over the cut, angle the adhesive so it doesn't bunch at the knuckle; if needed, reinforce with tape from the highlighted space. "Let me know when you're ready."
+- For small cuts: clean, dry, thin layer of Triple Antibiotic Ointment if available, center the Band-Aid pad over the cut, smooth adhesive around the skin, avoid wrapping too tight, check movement and circulation. "Let me know when you're ready."
+- For finger joints: place the Band-Aid pad over the cut, angle the adhesive so it doesn't bunch at the knuckle; if needed, reinforce with Cloth Medical Tape from the highlighted space. "Let me know when you're ready."
 
 BLEEDING CONTROL ESCALATION:
-- First attempt: Direct pressure with gauze for 5 minutes
-- If bleeding continues: Apply QuickClot/hemostatic agent with firm pressure
+- First attempt: Direct pressure with 4" x 4" Gauze Pads for 5 minutes
+- If bleeding continues: Apply QuickClot Gauze with firm pressure
 - If still bleeding: Apply more pressure and hold longer
 - If bleeding persists after multiple attempts: ESCALATE TO EMERGENCY CARE
 - NEVER repeat failed treatment methods - move to next option or emergency care
