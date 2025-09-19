@@ -23,7 +23,7 @@ load_dotenv(override=True)
 # --------- Config via env (Picovoice + OpenAI) ---------
 # Picovoice config
 PICOVOICE_ACCESS_KEY = os.getenv("PICOVOICE_ACCESS_KEY", "YOUR-PICOVOICE-ACCESSKEY-HERE")
-WAKEWORD_PATH = os.getenv("WAKEWORD_PATH", "Solstice_en_raspberry-pi_v3_0_0.ppn")
+WAKEWORD_PATH = os.getenv("WAKEWORD_PATH", "step-complete_en_raspberry-pi_v3_0_0.ppn")
 MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")
 MIC_SR = int(os.getenv("MIC_SR", "16000"))  # Porcupine requires 16k
 
