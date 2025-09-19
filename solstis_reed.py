@@ -757,7 +757,16 @@ def spawn_aplay(rate):
     args = ["aplay", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
     if OUT_DEVICE:
         args += ["-D", OUT_DEVICE]
-    return subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    log(f"🔊 Spawn Command: {' '.join(args)}")
+    
+    try:
+        process = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        log(f"🔊 Spawn Success: aplay process created with PID {process.pid}")
+        return process
+    except Exception as e:
+        log(f"🔊 Spawn Error: Failed to create aplay process: {e}")
+        raise
 
 
 def capture_audio_after_wakeword():
@@ -955,6 +964,9 @@ def generate_response(user_message, conversation_history=None):
 def text_to_speech(text):
     """Convert text to speech using OpenAI TTS"""
     try:
+        log(f"🎤 TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        log(f"🎤 TTS Config: model={TTS_MODEL}, voice={TTS_VOICE}, format=pcm")
+        
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=API_KEY)
         
@@ -967,21 +979,39 @@ def text_to_speech(text):
             speed=1.0
         )
         
+        audio_size = len(response.content)
+        log(f"🎤 TTS Success: Generated {audio_size} bytes of audio data")
+        
         return response.content
     
     except Exception as e:
-        log(f"Error generating speech: {e}")
+        log(f"🎤 TTS Error: {e}")
         return b""
 
 def play_audio(audio_data):
     """Play audio data using aplay"""
     try:
+        log(f"🔊 Audio Playback: Starting playback of {len(audio_data)} bytes")
+        log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
+        
         aplay = spawn_aplay(OUT_SR)
+        log(f"🔊 Audio Process: Spawned aplay process (PID: {aplay.pid})")
+        
+        log(f"🔊 Audio Write: Writing {len(audio_data)} bytes to aplay stdin")
         aplay.stdin.write(audio_data)
         aplay.stdin.close()
-        aplay.wait()
+        log(f"🔊 Audio Write: Closed stdin, waiting for playback to complete")
+        
+        # Wait for playback to complete
+        return_code = aplay.wait()
+        log(f"🔊 Audio Complete: aplay finished with return code {return_code}")
+        
+        if return_code != 0:
+            log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
+            
     except Exception as e:
-        log(f"Error playing audio: {e}")
+        log(f"🔊 Audio Error: {e}")
+        log(f"🔊 Audio Error Type: {type(e).__name__}")
 
 # Global variables for cleanup
 aplay_process = None
@@ -1095,9 +1125,13 @@ async def main():
                 log("Converting response to speech...")
                 audio_data = text_to_speech(response_text)
                 if audio_data:
+                    log(f"🎵 Audio Flow: TTS generated {len(audio_data)} bytes, starting playback")
                     start_speak_pulse()
                     play_audio(audio_data)
                     stop_speak_pulse()
+                    log(f"🎵 Audio Flow: Playback completed successfully")
+                else:
+                    log(f"🎵 Audio Flow: No audio data generated, skipping playback")
                 
                 print(f"Solstis: {response_text}")
                 
