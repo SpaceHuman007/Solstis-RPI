@@ -555,7 +555,7 @@ def get_system_prompt():
     
     contents_str = ", ".join(kit_contents)
     
-        return f"""Always speak in English (US). You are Solstis, a calm and supportive AI medical assistant. You help users with first aid using only the items available in their specific kit.
+     return f"""Always speak in English (US). You are Solstis, a calm and supportive AI medical assistant. You help users with first aid using only the items available in their specific kit.
 
 AVAILABLE ITEMS IN YOUR KIT:
 {contents_str}
