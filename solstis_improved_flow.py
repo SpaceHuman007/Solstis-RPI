@@ -44,9 +44,9 @@ USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # RMS threshold for speech detection
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "1.5"))  # seconds of silence before stopping
+SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum speech duration
-MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
+MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
 
 # Timeout configurations
 T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
@@ -710,6 +710,9 @@ def spawn_aplay(rate):
     args = ["aplay", "-t", "raw", "-f", "S16_LE", "-r", str(rate), "-c", "1"]
     if OUT_DEVICE:
         args += ["-D", OUT_DEVICE]
+    else:
+        # Force explicit default to avoid device confusion
+        args += ["-D", "default"]
     
     log(f"🔊 Spawn Command: {' '.join(args)}")
     
