@@ -41,8 +41,9 @@ TTS_VOICE = os.getenv("TTS_VOICE", "shimmer")
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 # Ensure mic and output don't use the same device
 if OUT_DEVICE == MIC_DEVICE:
-    log(f"⚠️  Warning: MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
-    log(f"⚠️  Setting OUT_DEVICE to 'default' to avoid conflict")
+    # Use print here because log() is defined later
+    print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
+    print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
     OUT_DEVICE = "default"
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
