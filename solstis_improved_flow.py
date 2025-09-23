@@ -39,12 +39,19 @@ TTS_VOICE = os.getenv("TTS_VOICE", "shimmer")
 
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
+# Ensure mic and output don't use the same device
+if OUT_DEVICE == MIC_DEVICE:
+    log(f"⚠️  Warning: MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
+    log(f"⚠️  Setting OUT_DEVICE to 'default' to avoid conflict")
+    OUT_DEVICE = "default"
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # RMS threshold for speech detection
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
+# When speech has been detected at least once, use a quicker silence cutoff
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.6"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
 
@@ -112,7 +119,7 @@ KEYWORD_MAPPINGS = {
     },
     "4\" x 4\" Gauze Pads": {
         "keywords": [
-            "gauze", "gauze pad", "gauze pads", "4 gauze pads", "4x4 gauze", 
+            "gauze pad", "gauze pads", "4 gauze pads", "4x4 gauze", 
             "square gauze", "sterile gauze", "dressing pad", "wound pad",
             "gauze square", "medical gauze", "absorbent pad"
         ],
@@ -128,7 +135,7 @@ KEYWORD_MAPPINGS = {
     "5\" x 9\" ABD Pad": {
         "keywords": [
             "abd pad", "abd", "abdominal pad", "large pad", "big pad", 
-            "5x9 pad", "large gauze", "major wound pad", "heavy bleeding pad"
+            "5x9 pad", "major wound pad", "heavy bleeding pad"
         ],
         "description": "5\" x 9\" ABD Pad for large wounds and heavy bleeding"
     },
@@ -881,10 +888,12 @@ def listen_for_speech(timeout=T_NORMAL):
                     # We were detecting speech, now we're in silence
                     if silence_start_time is None:
                         silence_start_time = current_time
-                    elif current_time - silence_start_time >= SILENCE_DURATION:
-                        # Been silent long enough
-                        log(f"Silence detected for {SILENCE_DURATION}s, stopping capture")
-                        break
+                    else:
+                        # After any detected speech, use a quicker silence cutoff to end short replies
+                        cutoff = QUICK_SILENCE_AFTER_SPEECH
+                        if current_time - silence_start_time >= cutoff:
+                            log(f"Silence detected after speech for {cutoff}s, stopping capture")
+                            break
                 else:
                     # Haven't detected speech yet, keep waiting
                     if current_time - speech_start_time >= MIN_SPEECH_DURATION:
@@ -977,29 +986,44 @@ def text_to_speech(text):
         return b""
 
 def play_audio(audio_data):
-    """Play audio data using aplay"""
-    try:
-        log(f"🔊 Audio Playback: Starting playback of {len(audio_data)} bytes")
-        log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
-        
-        aplay = spawn_aplay(OUT_SR)
-        log(f"🔊 Audio Process: Spawned aplay process (PID: {aplay.pid})")
-        
-        log(f"🔊 Audio Write: Writing {len(audio_data)} bytes to aplay stdin")
-        aplay.stdin.write(audio_data)
-        aplay.stdin.close()
-        log(f"🔊 Audio Write: Closed stdin, waiting for playback to complete")
-        
-        # Wait for playback to complete
-        return_code = aplay.wait()
-        log(f"🔊 Audio Complete: aplay finished with return code {return_code}")
-        
-        if return_code != 0:
-            log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
+    """Play audio data using aplay with retry logic"""
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            log(f"🔊 Audio Playback: Starting playback of {len(audio_data)} bytes (attempt {attempt + 1}/{max_retries})")
+            log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
             
-    except Exception as e:
-        log(f"🔊 Audio Error: {e}")
-        log(f"🔊 Audio Error Type: {type(e).__name__}")
+            aplay = spawn_aplay(OUT_SR)
+            log(f"🔊 Audio Process: Spawned aplay process (PID: {aplay.pid})")
+            
+            log(f"🔊 Audio Write: Writing {len(audio_data)} bytes to aplay stdin")
+            aplay.stdin.write(audio_data)
+            aplay.stdin.close()
+            log(f"🔊 Audio Write: Closed stdin, waiting for playback to complete")
+            
+            # Wait for playback to complete
+            return_code = aplay.wait()
+            log(f"🔊 Audio Complete: aplay finished with return code {return_code}")
+            
+            if return_code != 0:
+                log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
+                if attempt < max_retries - 1:
+                    log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
+                    time.sleep(0.5)
+                    continue
+            else:
+                # Success, break out of retry loop
+                break
+                
+        except Exception as e:
+            log(f"🔊 Audio Error: {e}")
+            log(f"🔊 Audio Error Type: {type(e).__name__}")
+            if attempt < max_retries - 1:
+                log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
+                time.sleep(0.5)
+                continue
+            else:
+                log(f"🔊 Audio Failed: All retry attempts exhausted")
 
 def say(text):
     """Convert text to speech and play it"""
@@ -1077,11 +1101,15 @@ def handle_conversation():
             # Process the user's response
             outcome, response_text = process_response(user_text, conversation_history)
             
-            # Parse response for LED control
-            parse_response_for_items(response_text)
+            # Clear any existing LEDs before speaking
+            if LED_ENABLED:
+                clear_all_leds()
             
-            # Speak the response
+            # Speak the response first
             say(response_text)
+            
+            # Parse response for LED control AFTER speaking
+            parse_response_for_items(response_text)
             
             if outcome == ResponseOutcome.NEED_MORE_INFO:
                 # Model keeps listening automatically
@@ -1114,12 +1142,18 @@ def handle_conversation():
                 current_state = ConversationState.WAITING_FOR_STEP_COMPLETE
                 say(prompt_step_complete())
                 
+                # Keep LEDs lit while waiting for step completion
+                log("💡 Keeping LEDs lit while waiting for step completion")
+                
                 # Wait for acknowledgement OR wake word
                 while True:
                     wake_word = wait_for_wake_word()
                     
                     if wake_word == "STEP_COMPLETE":
                         log("✅ Step complete detected, continuing procedure")
+                        # Clear LEDs when step is complete
+                        if LED_ENABLED:
+                            clear_all_leds()
                         # Continue procedure
                         user_text = "I've completed the step you asked me to do."
                         break  # Back to processing
@@ -1259,14 +1293,14 @@ async def main():
     global current_state
     
     # Clean up any existing audio processes first
-    # log("🧹 Cleaning up existing audio processes...")
-    # cleanup_audio_processes()
+    log("🧹 Cleaning up existing audio processes...")
+    cleanup_audio_processes()
     
-    # # Test audio devices
-    # log("🔊 Testing audio devices...")
-    # if not test_audio_devices():
-    #     log("❌ Audio device test failed. Please check your audio configuration.")
-    #     return
+    # Test audio devices
+    log("🔊 Testing audio devices...")
+    if not test_audio_devices():
+        log("❌ Audio device test failed. Please check your audio configuration.")
+        return
     
     # Initialize LED strip
     if LED_ENABLED:
