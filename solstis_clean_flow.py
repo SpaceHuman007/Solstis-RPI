@@ -867,6 +867,46 @@ BLEEDING ASSESSMENT PROTOCOL:
 - Severity determines treatment order and emergency escalation
 """
 
+def cleanup_audio_processes():
+    """Kill any existing audio processes that might be holding the devices"""
+    try:
+        # Kill any existing arecord processes
+        subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
+        # Kill any existing aplay processes  
+        subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
+        # Kill any processes using the specific audio device
+        subprocess.run(["fuser", "-k", MIC_DEVICE], check=False, capture_output=True)
+        if OUT_DEVICE:
+            subprocess.run(["fuser", "-k", OUT_DEVICE], check=False, capture_output=True)
+        # Longer delay to let processes terminate
+        time.sleep(1.0)
+        log("🧹 Cleaned up existing audio processes")
+    except Exception as e:
+        log(f"Warning: Could not cleanup audio processes: {e}")
+
+def test_audio_devices():
+    """Test if audio devices are available"""
+    try:
+        # Test microphone
+        test_cmd = ["arecord", "-D", MIC_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1", "-d", "1", "/dev/null"]
+        result = subprocess.run(test_cmd, capture_output=True, timeout=5)
+        if result.returncode != 0:
+            log(f"⚠️  Microphone test failed: {result.stderr.decode()}")
+            return False
+        
+        # Test speaker
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
+        result = subprocess.run(test_cmd, capture_output=True, timeout=5)
+        if result.returncode != 0:
+            log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
+            return False
+            
+        log("✅ Audio devices tested successfully")
+        return True
+    except Exception as e:
+        log(f"⚠️  Audio device test failed: {e}")
+        return False
+
 def signal_handler(signum, frame):
     """Handle shutdown gracefully"""
     log("Shutdown signal received, cleaning up...")
@@ -875,11 +915,24 @@ def signal_handler(signum, frame):
     if LED_ENABLED:
         clear_all_leds()
     
+    # Clean up audio processes
+    cleanup_audio_processes()
+    
     sys.exit(0)
 
 async def main():
     """Main entry point with clean, natural conversation flow"""
     global first_interaction, waiting_for_step_complete, conversation_history
+    
+    # Clean up any existing audio processes first
+    log("🧹 Cleaning up existing audio processes...")
+    cleanup_audio_processes()
+    
+    # Test audio devices
+    log("🔊 Testing audio devices...")
+    if not test_audio_devices():
+        log("❌ Audio device test failed. Please check your audio configuration.")
+        return
     
     # Initialize LED strip
     if LED_ENABLED:
