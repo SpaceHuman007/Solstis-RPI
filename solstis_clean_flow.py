@@ -925,14 +925,14 @@ async def main():
     global first_interaction, waiting_for_step_complete, conversation_history
     
     # Clean up any existing audio processes first
-    log("🧹 Cleaning up existing audio processes...")
-    cleanup_audio_processes()
+    # log("🧹 Cleaning up existing audio processes...")
+    # cleanup_audio_processes()
     
-    # Test audio devices
-    log("🔊 Testing audio devices...")
-    if not test_audio_devices():
-        log("❌ Audio device test failed. Please check your audio configuration.")
-        return
+    # # Test audio devices
+    # log("🔊 Testing audio devices...")
+    # if not test_audio_devices():
+    #     log("❌ Audio device test failed. Please check your audio configuration.")
+    #     return
     
     # Initialize LED strip
     if LED_ENABLED:

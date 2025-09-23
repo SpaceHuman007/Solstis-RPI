@@ -83,7 +83,9 @@ SPEAK_COLOR_B     = int(os.getenv("SPEAK_COLOR_B", "255"))
 # Reed switch config
 REED_SWITCH_ENABLED = os.getenv("REED_SWITCH_ENABLED", "true").lower() == "true" and GPIO_AVAILABLE
 REED_SWITCH_PIN = int(os.getenv("REED_SWITCH_PIN", "16"))  # GPIO pin connected to reed switch
-REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "100"))  # Debounce time in milliseconds
+REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "500"))  # Debounce time in milliseconds (reduced sensitivity)
+REED_SWITCH_CONFIRM_COUNT = int(os.getenv("REED_SWITCH_CONFIRM_COUNT", "5"))  # Number of consistent readings required
+REED_SWITCH_POLL_INTERVAL = float(os.getenv("REED_SWITCH_POLL_INTERVAL", "0.2"))  # Polling interval in seconds
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -476,21 +478,28 @@ def cleanup_reed_switch():
             log(f"Error cleaning up reed switch: {e}")
 
 def read_reed_switch():
-    """Read the current state of the reed switch with debouncing"""
+    """Read the current state of the reed switch with enhanced debouncing and confirmation"""
     if not REED_SWITCH_ENABLED or not reed_switch_initialized:
         return False
     
     try:
-        # Read the switch state (LOW = closed/magnet present, HIGH = open/magnet absent)
-        # For normally open reed switch, LOW means box is closed, HIGH means box is open
-        raw_state = GPIO.input(REED_SWITCH_PIN)
+        # Read multiple times to confirm the state (reduces false triggers)
+        readings = []
+        for i in range(REED_SWITCH_CONFIRM_COUNT):
+            state = GPIO.input(REED_SWITCH_PIN)
+            readings.append(state)
+            if i < REED_SWITCH_CONFIRM_COUNT - 1:  # Don't sleep after the last reading
+                time.sleep(REED_SWITCH_DEBOUNCE_MS / 1000.0)
         
-        # Add simple debouncing by reading multiple times
-        time.sleep(REED_SWITCH_DEBOUNCE_MS / 1000.0)
-        debounced_state = GPIO.input(REED_SWITCH_PIN)
-        
-        # Return True if box is open (HIGH), False if closed (LOW)
-        return debounced_state == GPIO.HIGH
+        # Check if all readings are consistent
+        if all(r == readings[0] for r in readings):
+            # All readings are the same, return the confirmed state
+            # Return True if box is open (HIGH), False if closed (LOW)
+            return readings[0] == GPIO.HIGH
+        else:
+            # Readings are inconsistent, keep previous state by returning False (no change)
+            log(f"⚠️  Inconsistent reed switch readings: {readings}")
+            return False
         
     except Exception as e:
         log(f"Error reading reed switch: {e}")
@@ -1092,6 +1101,8 @@ async def main():
                 pcm = await asyncio.to_thread(capture_audio_after_wakeword)
                 if not pcm or len(pcm) < int(OUT_SR * 2 * 0.1):   # ~100 ms min
                     log("Too little audio; skipping.")
+                    # Sleep briefly to avoid tight loop and to honor poll interval
+                    time.sleep(REED_SWITCH_POLL_INTERVAL)
                     continue
                 
                 # Transcribe audio
