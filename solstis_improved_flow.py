@@ -1166,18 +1166,38 @@ def handle_conversation():
                 else:
                     continue
 
-def cleanup_audio_processes():
-    """Kill any existing audio processes that might be holding the devices"""
+def cleanup_audio_processes(fast: bool = False):
+    """Kill any existing audio processes that might be holding the devices.
+    If fast=True, do it non-blocking and without sleeps (for signal handler).
+    """
     try:
-        # Kill any existing arecord processes
+        if fast:
+            # Fire-and-forget, no waiting
+            try:
+                subprocess.Popen(["pkill", "-9", "-f", "arecord"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(["pkill", "-9", "-f", "aplay"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(["fuser", "-k", MIC_DEVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            if OUT_DEVICE:
+                try:
+                    subprocess.Popen(["fuser", "-k", OUT_DEVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+            return
+        
+        # Normal blocking cleanup
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
-        # Kill any existing aplay processes  
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        # Kill any processes using the specific audio device
         subprocess.run(["fuser", "-k", MIC_DEVICE], check=False, capture_output=True)
         if OUT_DEVICE:
             subprocess.run(["fuser", "-k", OUT_DEVICE], check=False, capture_output=True)
-        # Longer delay to let processes terminate
         time.sleep(1.0)
         log("🧹 Cleaned up existing audio processes")
     except Exception as e:
@@ -1206,18 +1226,30 @@ def test_audio_devices():
         log(f"⚠️  Audio device test failed: {e}")
         return False
 
+_handling_signal = False
+
 def signal_handler(signum, frame):
-    """Handle shutdown gracefully"""
-    log("Shutdown signal received, cleaning up...")
-    
-    # Clean up LEDs
-    if LED_ENABLED:
-        clear_all_leds()
-    
-    # Clean up audio processes
-    cleanup_audio_processes()
-    
-    sys.exit(0)
+    """Handle shutdown quickly and non-blocking to avoid deadlocks on Ctrl+C."""
+    global _handling_signal
+    if _handling_signal:
+        return
+    _handling_signal = True
+    try:
+        log("Shutdown signal received, cleaning up...")
+    except Exception:
+        pass
+    try:
+        if LED_ENABLED:
+            clear_all_leds()
+    except Exception:
+        pass
+    # Fast, non-blocking audio cleanup
+    try:
+        cleanup_audio_processes(fast=True)
+    except Exception:
+        pass
+    # Exit immediately to avoid hanging in atexit/thread cleanup
+    os._exit(0)
 
 async def main():
     """Main entry point"""
