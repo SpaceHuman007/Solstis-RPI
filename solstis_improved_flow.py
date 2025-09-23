@@ -465,7 +465,7 @@ def prompt_continue_help():
     message = f"Hey {USER_NAME}, how can I help you?"
     return message
 
-def process_response(user_text):
+def process_response(user_text, conversation_history=None):
     """
     Process user response and determine the outcome.
     Returns one of: NEED_MORE_INFO, USER_ACTION_REQUIRED, PROCEDURE_DONE
@@ -1048,7 +1048,7 @@ def handle_conversation():
         
         while True:
             # Process the user's response
-            outcome, response_text = process_response(user_text)
+            outcome, response_text = process_response(user_text, conversation_history)
             
             # Parse response for LED control
             parse_response_for_items(response_text)

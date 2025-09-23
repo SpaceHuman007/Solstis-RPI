@@ -879,7 +879,7 @@ def signal_handler(signum, frame):
 
 async def main():
     """Main entry point with clean, natural conversation flow"""
-    global first_interaction, waiting_for_step_complete
+    global first_interaction, waiting_for_step_complete, conversation_history
     
     # Initialize LED strip
     if LED_ENABLED:
