@@ -49,7 +49,7 @@ MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum 
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
 
 # Timeout configurations
-T_SHORT = float(os.getenv("T_SHORT", "5.0"))  # Short timeout for initial responses
+T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
 T_NORMAL = float(os.getenv("T_NORMAL", "10.0"))  # Normal timeout for conversation
 T_LONG = float(os.getenv("T_LONG", "15.0"))  # Long timeout for step completion
 
