@@ -58,7 +58,7 @@ MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum
 
 # Noise filtering config
 NOISE_SAMPLES = int(os.getenv("NOISE_SAMPLES", "10"))  # Number of samples to calculate ambient noise level
-MIN_SPEECH_FRAMES = int(os.getenv("MIN_SPEECH_FRAMES", "3"))  # Minimum consecutive frames of speech to trigger
+MIN_SPEECH_FRAMES = int(os.getenv("MIN_SPEECH_FRAMES", "5"))  # Minimum consecutive frames of speech to trigger
 NOISE_MULTIPLIER = float(os.getenv("NOISE_MULTIPLIER", "2.5"))  # Multiplier above ambient noise for speech detection
 
 # Timeout configurations
@@ -707,7 +707,16 @@ def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, ambient_noise_lev
     
     # If we have ambient noise level, use adaptive thresholding
     if ambient_noise_level is not None:
-        adaptive_threshold = max(threshold, ambient_noise_level * NOISE_MULTIPLIER)
+        # In quiet environments, use higher threshold to avoid false positives
+        # In noisy environments, use lower threshold relative to noise
+        if ambient_noise_level < threshold / 2:  # Quiet environment
+            adaptive_threshold = threshold * 1.5  # Higher threshold for quiet
+        else:  # Noisy environment
+            adaptive_threshold = max(threshold, ambient_noise_level * NOISE_MULTIPLIER)
+        
+        # Only log when speech is detected to reduce noise
+        if rms > adaptive_threshold:
+            log(f"Speech detected - RMS: {rms:.1f}, Ambient: {ambient_noise_level:.1f}, Threshold: {adaptive_threshold:.1f}")
         return rms > adaptive_threshold
     
     # Fallback to fixed threshold
@@ -912,8 +921,8 @@ def listen_for_speech(timeout=T_NORMAL):
             if len(audio_samples) > NOISE_SAMPLES * 2:  # Keep only recent samples
                 audio_samples = audio_samples[-NOISE_SAMPLES * 2:]
             
-            # Calculate ambient noise level periodically
-            if len(audio_samples) >= NOISE_SAMPLES and len(audio_samples) % NOISE_SAMPLES == 0:
+            # Calculate ambient noise level periodically (less frequent logging)
+            if len(audio_samples) >= NOISE_SAMPLES and len(audio_samples) % (NOISE_SAMPLES * 2) == 0:
                 ambient_noise_level = calculate_ambient_noise_level(audio_samples)
                 if ambient_noise_level is not None:
                     log(f"Ambient noise level: {ambient_noise_level:.1f}")
