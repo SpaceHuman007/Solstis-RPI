@@ -112,6 +112,7 @@ class ResponseOutcome:
     NEED_MORE_INFO = "need_more_info"
     USER_ACTION_REQUIRED = "user_action_required"
     PROCEDURE_DONE = "procedure_done"
+    EMERGENCY_SITUATION = "emergency_situation"
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -700,6 +701,19 @@ def process_response(user_text, conversation_history=None):
         response_lower = response_text.lower()
         
         # Check for procedure completion indicators
+        # First check if this is an emergency situation - don't end conversation for emergencies
+        emergency_indicators = [
+            "emergency room", "call 9-1-1", "immediate medical attention", 
+            "seek immediate", "go to the nearest", "call for medical help",
+            "emergency care", "urgent medical", "critical situation"
+        ]
+        
+        is_emergency = any(phrase in response_lower for phrase in emergency_indicators)
+        
+        # Handle emergency situations - continue conversation to provide support
+        if is_emergency:
+            return ResponseOutcome.EMERGENCY_SITUATION, response_text
+        
         if any(phrase in response_lower for phrase in [
             "procedure is complete", "treatment is done", "you're all set", 
             "that should help", "you should be fine", "call 9-1-1", "emergency room",
@@ -1468,6 +1482,34 @@ def handle_conversation():
                         break  # Back to processing
                 
                 continue  # Re-process after step
+            
+            elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
+                # Emergency situation - continue conversation to provide ongoing support
+                log("🚨 Emergency situation detected - continuing conversation for support")
+                # Continue listening for more input to provide additional guidance
+                audio_data = listen_for_speech(timeout=T_NORMAL)
+                
+                if audio_data is None:
+                    log("🔇 No response to emergency guidance, prompting and waiting for wake word")
+                    say("I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.")
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                    
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        # Set flag to skip opening message on next iteration
+                        skip_opening_message = True
+                        break  # Exit active assistance loop
+                    else:
+                        break
+                
+                user_text = transcribe_audio(audio_data)
+                if not user_text:
+                    log("❌ No transcription received")
+                    continue
+                
+                print(f"User: {user_text}")
+                continue  # Re-process with new emergency-related input
             
             elif outcome == ResponseOutcome.PROCEDURE_DONE:
                 # Procedure is complete
