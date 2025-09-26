@@ -987,12 +987,18 @@ def text_to_speech(text):
         return b""
 
 def play_audio(audio_data):
-    """Play audio data using aplay with retry logic"""
-    max_retries = 2
+    """Play audio data using aplay with retry logic and device cleanup"""
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             log(f"🔊 Audio Playback: Starting playback of {len(audio_data)} bytes (attempt {attempt + 1}/{max_retries})")
             log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
+            
+            # Clean up any existing aplay processes before starting
+            if attempt > 0:
+                log(f"🔊 Audio Cleanup: Cleaning up before retry attempt {attempt + 1}")
+                subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
+                time.sleep(0.5)
             
             aplay = spawn_aplay(OUT_SR)
             log(f"🔊 Audio Process: Spawned aplay process (PID: {aplay.pid})")
@@ -1002,29 +1008,44 @@ def play_audio(audio_data):
             aplay.stdin.close()
             log(f"🔊 Audio Write: Closed stdin, waiting for playback to complete")
             
-            # Wait for playback to complete
-            return_code = aplay.wait()
-            log(f"🔊 Audio Complete: aplay finished with return code {return_code}")
-            
-            if return_code != 0:
-                log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
+            # Wait for playback to complete with timeout
+            try:
+                return_code = aplay.wait(timeout=10)  # 10 second timeout
+                log(f"🔊 Audio Complete: aplay finished with return code {return_code}")
+                
+                if return_code != 0:
+                    log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
+                    if attempt < max_retries - 1:
+                        log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
+                        time.sleep(1.0)
+                        continue
+                else:
+                    # Success, break out of retry loop
+                    break
+                    
+            except subprocess.TimeoutExpired:
+                log(f"🔊 Audio Timeout: aplay process timed out, killing it")
+                aplay.kill()
                 if attempt < max_retries - 1:
                     log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
-                    time.sleep(0.5)
+                    time.sleep(1.0)
                     continue
-            else:
-                # Success, break out of retry loop
-                break
                 
         except Exception as e:
             log(f"🔊 Audio Error: {e}")
             log(f"🔊 Audio Error Type: {type(e).__name__}")
             if attempt < max_retries - 1:
                 log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
-                time.sleep(0.5)
+                time.sleep(1.0)
                 continue
             else:
                 log(f"🔊 Audio Failed: All retry attempts exhausted")
+    
+    # Final cleanup after all attempts
+    try:
+        subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
+    except Exception:
+        pass
 
 def say(text):
     """Convert text to speech and play it"""
@@ -1315,9 +1336,9 @@ async def main():
     """Main entry point"""
     global current_state
     
-    # Reset audio devices to clean state (fixes noisy boot issues)
-    log("🔄 Resetting audio devices...")
-    reset_audio_devices()
+    # # Reset audio devices to clean state (fixes noisy boot issues)
+    # log("🔄 Resetting audio devices...")
+    # reset_audio_devices()
     
     # # Test audio devices
     # log("🔊 Testing audio devices...")
