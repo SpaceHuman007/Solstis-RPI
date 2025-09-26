@@ -702,7 +702,14 @@ def process_response(user_text, conversation_history=None):
         # Check for procedure completion indicators
         if any(phrase in response_lower for phrase in [
             "procedure is complete", "treatment is done", "you're all set", 
-            "that should help", "you should be fine", "call 9-1-1", "emergency room"
+            "that should help", "you should be fine", "call 9-1-1", "emergency room",
+            "great job", "well done", "take care", "you're good", "all done",
+            "procedure complete", "treatment complete", "finished", "completed",
+            "you should be okay", "you'll be fine", "everything looks good",
+            "keep an eye on", "monitor", "watch for", "signs of infection",
+            "healthcare professional", "see a doctor", "medical attention",
+            "let me know if", "anything else i can help", "further assistance",
+            "feel free to ask", "any more questions", "need further help"
         ]):
             return ResponseOutcome.PROCEDURE_DONE, response_text
         
