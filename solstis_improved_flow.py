@@ -710,6 +710,16 @@ def process_response(user_text, conversation_history=None):
         ]):
             return ResponseOutcome.USER_ACTION_REQUIRED, response_text
         
+        # Check for AI asking for additional input/feedback (should continue listening)
+        if any(phrase in response_lower for phrase in [
+            "is there anything else", "anything else i can help", "anything else you need",
+            "do you need help with", "would you like help with", "can i help with",
+            "any other questions", "any other concerns", "anything else regarding",
+            "what else can i help", "how else can i help", "anything more",
+            "any other issues", "any other problems", "any other injuries"
+        ]):
+            return ResponseOutcome.NEED_MORE_INFO, response_text
+        
         # Check for emergency situations
         emergency_indicators = [
             "emergency room", "call 9-1-1", "immediate medical attention", 
@@ -723,7 +733,7 @@ def process_response(user_text, conversation_history=None):
         if is_emergency:
             return ResponseOutcome.EMERGENCY_SITUATION, response_text
         
-        # Check for procedure completion indicators (only if not user action or emergency)
+        # Check for procedure completion indicators (only if not user action, asking for input, or emergency)
         if any(phrase in response_lower for phrase in [
             "procedure is complete", "treatment is done", "you're all set", 
             "that should help", "you should be fine", "call 9-1-1", "emergency room", 
@@ -732,8 +742,7 @@ def process_response(user_text, conversation_history=None):
             "you should be okay", "you'll be fine", "everything looks good",
             "keep an eye on", "monitor", "watch for", "signs of infection",
             "healthcare professional", "see a doctor", "medical attention",
-            "let me know if", "anything else i can help", "further assistance",
-            "feel free to ask", "any more questions", "need further help"
+            "further assistance", "feel free to ask", "need further help"
         ]):
             return ResponseOutcome.PROCEDURE_DONE, response_text
         
