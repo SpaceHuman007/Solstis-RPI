@@ -700,8 +700,17 @@ def process_response(user_text, conversation_history=None):
         # Determine outcome based on response content
         response_lower = response_text.lower()
         
-        # Check for procedure completion indicators
-        # First check if this is an emergency situation - don't end conversation for emergencies
+        # Check for user action required indicators FIRST (highest priority)
+        if any(phrase in response_lower for phrase in [
+            "let me know when", "when you're done", "when you're ready", 
+            "say step complete", "tell me when", "let me know",
+            "apply", "use", "place", "put on", "secure", "wrap", "cover",
+            "from your kit", "from the highlighted", "let me know when you've",
+            "please apply", "please use", "please place", "please put"
+        ]):
+            return ResponseOutcome.USER_ACTION_REQUIRED, response_text
+        
+        # Check for emergency situations
         emergency_indicators = [
             "emergency room", "call 9-1-1", "immediate medical attention", 
             "seek immediate", "go to the nearest", "call for medical help",
@@ -714,10 +723,11 @@ def process_response(user_text, conversation_history=None):
         if is_emergency:
             return ResponseOutcome.EMERGENCY_SITUATION, response_text
         
+        # Check for procedure completion indicators (only if not user action or emergency)
         if any(phrase in response_lower for phrase in [
             "procedure is complete", "treatment is done", "you're all set", 
-            "that should help", "you should be fine", "call 9-1-1", "emergency room",
-            "great job", "well done", "take care", "you're good", "all done",
+            "that should help", "you should be fine", "call 9-1-1", "emergency room", 
+            "well done", "take care", "you're good", "all done",
             "procedure complete", "treatment complete", "finished", "completed",
             "you should be okay", "you'll be fine", "everything looks good",
             "keep an eye on", "monitor", "watch for", "signs of infection",
@@ -726,13 +736,6 @@ def process_response(user_text, conversation_history=None):
             "feel free to ask", "any more questions", "need further help"
         ]):
             return ResponseOutcome.PROCEDURE_DONE, response_text
-        
-        # Check for user action required indicators
-        if any(phrase in response_lower for phrase in [
-            "let me know when", "when you're done", "when you're ready", 
-            "say step complete", "tell me when", "let me know"
-        ]):
-            return ResponseOutcome.USER_ACTION_REQUIRED, response_text
         
         # Check for clarification-seeking indicators (NEW - prioritize asking for more info)
         if any(phrase in response_lower for phrase in [
