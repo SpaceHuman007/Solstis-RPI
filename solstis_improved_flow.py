@@ -122,7 +122,7 @@ speak_pulse_thread = None
 speak_pulse_stop = threading.Event()
 conversation_history = []
 current_state = ConversationState.WAITING_FOR_WAKE_WORD
-current_lit_item = None  # Track the currently lit item for LED preservation
+current_lit_items = []  # Track multiple currently lit items for LED preservation
 
 # Reed switch state variables
 box_is_open = False
@@ -344,7 +344,7 @@ def init_led_strip():
 
 def clear_all_leds():
     """Turn off all LEDs"""
-    global current_lit_item
+    global current_lit_items
     if not LED_ENABLED or not led_strip:
         return
     
@@ -352,7 +352,7 @@ def clear_all_leds():
         for i in range(led_strip.numPixels()):
             led_strip.setPixelColor(i, 0)
         led_strip.show()
-        current_lit_item = None  # Clear the tracked item
+        current_lit_items = []  # Clear the tracked items
     except Exception as e:
         log(f"Error clearing LEDs: {e}")
 
@@ -369,61 +369,60 @@ def clear_all_leds_preserve_item():
         log(f"Error clearing LEDs: {e}")
 
 def get_current_item_leds():
-    """Get the LED indices for the currently lit item"""
-    global current_lit_item
-    if not current_lit_item or not LED_ENABLED:
+    """Get the LED indices for all currently lit items"""
+    global current_lit_items
+    if not current_lit_items or not LED_ENABLED:
         return set()
     
-    # Find the item in mappings (case-insensitive)
-    item_key = None
-    for key in LED_MAPPINGS.keys():
-        if key.lower() in current_lit_item.lower() or current_lit_item.lower() in key.lower():
-            item_key = key
-            break
-    
-    if not item_key:
-        return set()
-    
-    # Get all LED indices for this item
     led_indices = set()
-    ranges = LED_MAPPINGS[item_key]
-    for start, end in ranges:
-        for i in range(start, end + 1):
-            led_indices.add(i)
+    
+    for item_name in current_lit_items:
+        # Find the item in mappings (case-insensitive)
+        item_key = None
+        for key in LED_MAPPINGS.keys():
+            if key.lower() in item_name.lower() or item_name.lower() in key.lower():
+                item_key = key
+                break
+        
+        if item_key:
+            # Get all LED indices for this item
+            ranges = LED_MAPPINGS[item_key]
+            for start, end in ranges:
+                for i in range(start, end + 1):
+                    led_indices.add(i)
     
     return led_indices
 
 def restore_item_leds():
-    """Restore the currently lit item LEDs after pulsing stops"""
-    global current_lit_item
-    if not current_lit_item or not LED_ENABLED or not led_strip:
+    """Restore all currently lit item LEDs after pulsing stops"""
+    global current_lit_items
+    if not current_lit_items or not LED_ENABLED or not led_strip:
         return
     
-    # Find the item in mappings (case-insensitive)
-    item_key = None
-    for key in LED_MAPPINGS.keys():
-        if key.lower() in current_lit_item.lower() or current_lit_item.lower() in key.lower():
-            item_key = key
-            break
-    
-    if not item_key:
-        return
-    
-    ranges = LED_MAPPINGS[item_key]
     color = (0, 240, 255)  # Default cyan color
     
     try:
-        # Light up all ranges for this item
-        for start, end in ranges:
-            for i in range(start, end + 1):
-                if i < led_strip.numPixels():
-                    led_strip.setPixelColor(i, Color(*color))
+        for item_name in current_lit_items:
+            # Find the item in mappings (case-insensitive)
+            item_key = None
+            for key in LED_MAPPINGS.keys():
+                if key.lower() in item_name.lower() or item_name.lower() in key.lower():
+                    item_key = key
+                    break
+            
+            if item_key:
+                ranges = LED_MAPPINGS[item_key]
+                # Light up all ranges for this item
+                for start, end in ranges:
+                    for i in range(start, end + 1):
+                        if i < led_strip.numPixels():
+                            led_strip.setPixelColor(i, Color(*color))
         
         led_strip.show()
-        log(f"Restored LEDs for item: {current_lit_item}")
+        log(f"Restored LEDs for items: {', '.join(current_lit_items)}")
         
     except Exception as e:
-        log(f"Error restoring LEDs for {current_lit_item}: {e}")
+        log(f"Error restoring LEDs for items {current_lit_items}: {e}")
 
 def _pulse_range_once(start_idx, end_idx, r, g, b, brightness):
     if not LED_ENABLED or not led_strip:
@@ -487,45 +486,52 @@ def stop_speak_pulse():
     except Exception:
         pass
 
-def light_item_leds(item_name, color=(0, 240, 255)):
-    """Light up LEDs for a specific item (supports multiple ranges)"""
-    global current_lit_item
+def light_multiple_item_leds(item_names, color=(0, 240, 255)):
+    """Light up LEDs for multiple items simultaneously"""
+    global current_lit_items
     if not LED_ENABLED or not led_strip:
-        log(f"LED control not available - would light: {item_name}")
+        log(f"LED control not available - would light: {', '.join(item_names)}")
         return
     
-    # Find the item in mappings (case-insensitive)
-    item_key = None
-    for key in LED_MAPPINGS.keys():
-        if key.lower() in item_name.lower() or item_name.lower() in key.lower():
-            item_key = key
-            break
-    
-    if not item_key:
-        log(f"No LED mapping found for item: {item_name}")
-        return
-    
-    ranges = LED_MAPPINGS[item_key]
-    log(f"Lighting LEDs for item: {item_name}")
+    log(f"Lighting LEDs for multiple items: {', '.join(item_names)}")
     
     try:
         # Clear all LEDs first but preserve item tracking
         clear_all_leds_preserve_item()
         
-        # Light up all ranges for this item
-        for range_idx, (start, end) in enumerate(ranges):
-            log(f"  Range {range_idx + 1}: LEDs {start}-{end}")
-            for i in range(start, end + 1):
-                if i < led_strip.numPixels():
-                    led_strip.setPixelColor(i, Color(*color))
+        # Light up all items
+        for item_name in item_names:
+            # Find the item in mappings (case-insensitive)
+            item_key = None
+            for key in LED_MAPPINGS.keys():
+                if key.lower() in item_name.lower() or item_name.lower() in key.lower():
+                    item_key = key
+                    break
+            
+            if item_key:
+                ranges = LED_MAPPINGS[item_key]
+                log(f"  Lighting {item_name}: {ranges}")
+                
+                # Light up all ranges for this item
+                for range_idx, (start, end) in enumerate(ranges):
+                    log(f"    Range {range_idx + 1}: LEDs {start}-{end}")
+                    for i in range(start, end + 1):
+                        if i < led_strip.numPixels():
+                            led_strip.setPixelColor(i, Color(*color))
+            else:
+                log(f"  No LED mapping found for item: {item_name}")
         
         led_strip.show()
         
-        # Track the currently lit item
-        current_lit_item = item_name
+        # Track the currently lit items
+        current_lit_items = item_names.copy()
         
     except Exception as e:
-        log(f"Error lighting LEDs for {item_name}: {e}")
+        log(f"Error lighting LEDs for items {item_names}: {e}")
+
+def light_item_leds(item_name, color=(0, 240, 255)):
+    """Light up LEDs for a single item (backwards compatibility)"""
+    light_multiple_item_leds([item_name], color)
 
 def parse_response_for_items(response_text):
     """Parse AI response text to identify mentioned items and light appropriate LEDs"""
@@ -535,11 +541,11 @@ def parse_response_for_items(response_text):
     # Use enhanced keyword detection
     detected_items = detect_mentioned_items(response_text)
     
-    # Light LEDs for the first detected item
+    # Light LEDs for all detected items
     if detected_items:
-        first_item = detected_items[0]["item"]
-        log(f"Lighting LEDs for detected item: {first_item}")
-        light_item_leds(first_item)
+        item_names = [item["item"] for item in detected_items]
+        log(f"Lighting LEDs for all detected items: {', '.join(item_names)}")
+        light_multiple_item_leds(item_names)
 
 # ---------- Reed Switch Control System ----------
 def init_reed_switch():
