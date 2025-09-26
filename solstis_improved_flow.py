@@ -49,12 +49,17 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # RMS threshold for speech detection
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS threshold for speech detection (increased from 500)
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.6"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
+
+# Noise filtering config
+NOISE_SAMPLES = int(os.getenv("NOISE_SAMPLES", "10"))  # Number of samples to calculate ambient noise level
+MIN_SPEECH_FRAMES = int(os.getenv("MIN_SPEECH_FRAMES", "3"))  # Minimum consecutive frames of speech to trigger
+NOISE_MULTIPLIER = float(os.getenv("NOISE_MULTIPLIER", "2.5"))  # Multiplier above ambient noise for speech detection
 
 # Timeout configurations
 T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
@@ -696,10 +701,33 @@ def calculate_rms(audio_data):
     rms = math.sqrt(sum_squares / len(samples))
     return rms
 
-def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD):
-    """Determine if audio contains speech based on RMS threshold"""
+def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, ambient_noise_level=None):
+    """Determine if audio contains speech based on RMS threshold and ambient noise level"""
     rms = calculate_rms(audio_data)
+    
+    # If we have ambient noise level, use adaptive thresholding
+    if ambient_noise_level is not None:
+        adaptive_threshold = max(threshold, ambient_noise_level * NOISE_MULTIPLIER)
+        return rms > adaptive_threshold
+    
+    # Fallback to fixed threshold
     return rms > threshold
+
+def calculate_ambient_noise_level(audio_samples):
+    """Calculate ambient noise level from recent audio samples"""
+    if len(audio_samples) < NOISE_SAMPLES:
+        return None
+    
+    # Get the most recent samples
+    recent_samples = audio_samples[-NOISE_SAMPLES:]
+    
+    # Calculate RMS for each sample and find the median
+    rms_values = [calculate_rms(sample) for sample in recent_samples]
+    rms_values.sort()
+    
+    # Use median to avoid outliers
+    median_rms = rms_values[len(rms_values) // 2]
+    return median_rms
 
 # ---------- Picovoice Wake Word Detection ----------
 def spawn_arecord(rate, device):
@@ -857,6 +885,11 @@ def listen_for_speech(timeout=T_NORMAL):
         speech_detected = False
         silence_duration = 0.0  # Track continuous silence duration
         
+        # Noise filtering variables
+        audio_samples = []  # Store recent audio samples for noise calculation
+        consecutive_speech_frames = 0  # Track consecutive frames of speech
+        ambient_noise_level = None
+        
         # Calculate frame duration for timing
         frame_duration = frame_len / mic_sr  # seconds per frame
         
@@ -874,18 +907,38 @@ def listen_for_speech(timeout=T_NORMAL):
             
             audio_buffer += chunk
             
+            # Store audio sample for noise calculation
+            audio_samples.append(chunk)
+            if len(audio_samples) > NOISE_SAMPLES * 2:  # Keep only recent samples
+                audio_samples = audio_samples[-NOISE_SAMPLES * 2:]
+            
+            # Calculate ambient noise level periodically
+            if len(audio_samples) >= NOISE_SAMPLES and len(audio_samples) % NOISE_SAMPLES == 0:
+                ambient_noise_level = calculate_ambient_noise_level(audio_samples)
+                if ambient_noise_level is not None:
+                    log(f"Ambient noise level: {ambient_noise_level:.1f}")
+            
             # Check for speech in this frame
             current_time = time.time()
             if speech_start_time is None:
                 speech_start_time = current_time
             
-            if is_speech_detected(chunk, SPEECH_THRESHOLD):
-                if not speech_detected:
-                    log("Speech detected, continuing capture...")
-                    speech_detected = True
-                silence_start_time = None  # Reset silence timer
-                silence_duration = 0.0  # Reset silence duration
+            # Use improved speech detection with noise filtering
+            frame_speech_detected = is_speech_detected(chunk, SPEECH_THRESHOLD, ambient_noise_level)
+            
+            if frame_speech_detected:
+                consecutive_speech_frames += 1
+                
+                # Only consider it speech if we have enough consecutive frames
+                if consecutive_speech_frames >= MIN_SPEECH_FRAMES:
+                    if not speech_detected:
+                        log("Speech detected, continuing capture...")
+                        speech_detected = True
+                    silence_start_time = None  # Reset silence timer
+                    silence_duration = 0.0  # Reset silence duration
             else:
+                consecutive_speech_frames = 0  # Reset consecutive speech counter
+                
                 # No speech detected
                 if speech_detected:
                     # We were detecting speech, now we're in silence
