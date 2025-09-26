@@ -49,7 +49,7 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS threshold for speech detection (increased from 500)
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "1200"))  # RMS threshold for speech detection (increased for better noise rejection)
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.6"))
@@ -58,7 +58,7 @@ MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum
 
 # Noise filtering config
 NOISE_SAMPLES = int(os.getenv("NOISE_SAMPLES", "10"))  # Number of samples to calculate ambient noise level
-MIN_SPEECH_FRAMES = int(os.getenv("MIN_SPEECH_FRAMES", "5"))  # Minimum consecutive frames of speech to trigger
+MIN_SPEECH_FRAMES = int(os.getenv("MIN_SPEECH_FRAMES", "8"))  # Minimum consecutive frames of speech to trigger
 NOISE_MULTIPLIER = float(os.getenv("NOISE_MULTIPLIER", "2.5"))  # Multiplier above ambient noise for speech detection
 
 # Timeout configurations
@@ -708,10 +708,12 @@ def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, ambient_noise_lev
     # If we have ambient noise level, use adaptive thresholding
     if ambient_noise_level is not None:
         # In quiet environments, use higher threshold to avoid false positives
-        # In noisy environments, use lower threshold relative to noise
+        # In noisy environments, use even higher threshold to avoid false positives
         if ambient_noise_level < threshold / 2:  # Quiet environment
             adaptive_threshold = threshold * 1.5  # Higher threshold for quiet
-        else:  # Noisy environment
+        elif ambient_noise_level > threshold:  # Very noisy environment
+            adaptive_threshold = ambient_noise_level * (NOISE_MULTIPLIER + 0.5)  # Even higher threshold
+        else:  # Moderate noise environment
             adaptive_threshold = max(threshold, ambient_noise_level * NOISE_MULTIPLIER)
         
         # Only log when speech is detected to reduce noise
@@ -941,10 +943,16 @@ def listen_for_speech(timeout=T_NORMAL):
                 # Only consider it speech if we have enough consecutive frames
                 if consecutive_speech_frames >= MIN_SPEECH_FRAMES:
                     if not speech_detected:
-                        log("Speech detected, continuing capture...")
-                        speech_detected = True
-                    silence_start_time = None  # Reset silence timer
-                    silence_duration = 0.0  # Reset silence duration
+                        # Additional check: ensure we've been detecting speech for minimum duration
+                        speech_duration = current_time - speech_start_time
+                        if speech_duration >= MIN_SPEECH_DURATION:
+                            log("Speech detected, continuing capture...")
+                            speech_detected = True
+                        else:
+                            log(f"Speech detected but too brief ({speech_duration:.1f}s), ignoring")
+                    if speech_detected:
+                        silence_start_time = None  # Reset silence timer
+                        silence_duration = 0.0  # Reset silence duration
             else:
                 consecutive_speech_frames = 0  # Reset consecutive speech counter
                 
