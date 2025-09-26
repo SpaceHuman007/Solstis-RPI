@@ -10,6 +10,14 @@ import tempfile
 import requests
 import pvporcupine  # pip install pvporcupine
 
+# GPIO imports for reed switch
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("Warning: RPi.GPIO not available. Reed switch functionality disabled.")
+
 # LED Control imports
 try:
     from rpi_ws281x import *
@@ -81,6 +89,13 @@ SPEAK_COLOR_R     = int(os.getenv("SPEAK_COLOR_R", "0"))
 SPEAK_COLOR_G     = int(os.getenv("SPEAK_COLOR_G", "180"))
 SPEAK_COLOR_B     = int(os.getenv("SPEAK_COLOR_B", "255"))
 
+# Reed switch config
+REED_SWITCH_ENABLED = os.getenv("REED_SWITCH_ENABLED", "true").lower() == "true" and GPIO_AVAILABLE
+REED_SWITCH_PIN = int(os.getenv("REED_SWITCH_PIN", "16"))  # GPIO pin connected to reed switch
+REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "500"))  # Debounce time in milliseconds (reduced sensitivity)
+REED_SWITCH_CONFIRM_COUNT = int(os.getenv("REED_SWITCH_CONFIRM_COUNT", "5"))  # Number of consistent readings required
+REED_SWITCH_POLL_INTERVAL = float(os.getenv("REED_SWITCH_POLL_INTERVAL", "0.2"))  # Polling interval in seconds
+
 # Wake word constants
 WAKE_WORD_SOLSTIS = "SOLSTIS"
 WAKE_WORD_STEP_COMPLETE = "STEP COMPLETE"
@@ -107,6 +122,10 @@ speak_pulse_thread = None
 speak_pulse_stop = threading.Event()
 conversation_history = []
 current_state = ConversationState.WAITING_FOR_WAKE_WORD
+
+# Reed switch state variables
+box_is_open = False
+reed_switch_initialized = False
 
 # ---------- Enhanced Keyword Detection System ----------
 # Comprehensive keyword mapping for medical kit items
@@ -441,6 +460,85 @@ def parse_response_for_items(response_text):
         first_item = detected_items[0]["item"]
         log(f"Lighting LEDs for detected item: {first_item}")
         light_item_leds(first_item)
+
+# ---------- Reed Switch Control System ----------
+def init_reed_switch():
+    """Initialize the reed switch GPIO"""
+    global reed_switch_initialized
+    if not REED_SWITCH_ENABLED:
+        log("Reed switch control disabled")
+        return False
+    
+    try:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(REED_SWITCH_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        reed_switch_initialized = True
+        log(f"Reed switch initialized on GPIO pin {REED_SWITCH_PIN}")
+        return True
+    except Exception as e:
+        log(f"Failed to initialize reed switch: {e}")
+        return False
+
+def cleanup_reed_switch():
+    """Clean up reed switch GPIO"""
+    global reed_switch_initialized
+    if reed_switch_initialized:
+        try:
+            GPIO.cleanup(REED_SWITCH_PIN)
+            reed_switch_initialized = False
+            log("Reed switch GPIO cleaned up")
+        except Exception as e:
+            log(f"Error cleaning up reed switch: {e}")
+
+def read_reed_switch():
+    """Read the current state of the reed switch with enhanced debouncing and confirmation"""
+    if not REED_SWITCH_ENABLED or not reed_switch_initialized:
+        return False
+    
+    try:
+        # Read multiple times to confirm the state (reduces false triggers)
+        readings = []
+        for i in range(REED_SWITCH_CONFIRM_COUNT):
+            state = GPIO.input(REED_SWITCH_PIN)
+            readings.append(state)
+            if i < REED_SWITCH_CONFIRM_COUNT - 1:  # Don't sleep after the last reading
+                time.sleep(REED_SWITCH_DEBOUNCE_MS / 1000.0)
+        
+        # Check if all readings are consistent
+        if all(r == readings[0] for r in readings):
+            # All readings are the same, return the confirmed state
+            # Return True if box is open (HIGH), False if closed (LOW)
+            return readings[0] == GPIO.HIGH
+        else:
+            # Readings are inconsistent, keep previous state by returning False (no change)
+            log(f"⚠️  Inconsistent reed switch readings: {readings}")
+            return False
+        
+    except Exception as e:
+        log(f"Error reading reed switch: {e}")
+        return False
+
+def check_box_state_change():
+    """Check if the box state has changed and return the new state"""
+    global box_is_open
+    
+    if not REED_SWITCH_ENABLED:
+        return False, box_is_open
+    
+    current_state = read_reed_switch()
+    
+    if current_state != box_is_open:
+        old_state = box_is_open
+        box_is_open = current_state
+        
+        if box_is_open:
+            log("📦 Box opened - ready for new conversation")
+        else:
+            log("📦 Box closed - conversation reset")
+        
+        return True, box_is_open
+    
+    return False, box_is_open
 
 # ---------- Core Conversation Flow Functions ----------
 def opening_message():
@@ -1059,16 +1157,40 @@ def say(text):
 
 # ---------- Main Conversation Flow ----------
 def handle_conversation():
-    """Main conversation handler implementing the improved flow"""
-    global current_state
+    """Main conversation handler implementing the improved flow with reed switch integration"""
+    global current_state, conversation_history
     
-    log("🎯 Starting improved conversation flow")
+    log("🎯 Starting improved conversation flow with reed switch")
     
     # Flag to track if we should skip opening message
     skip_opening_message = False
     
     # Main interaction loop
     while True:
+        # Check for reed switch state changes
+        state_changed, is_open = check_box_state_change()
+        
+        if state_changed and not is_open:
+            # Box just closed - reset conversation state
+            log("📦 Box closed - resetting conversation state")
+            conversation_history = []
+            skip_opening_message = False
+            current_state = ConversationState.WAITING_FOR_WAKE_WORD
+            
+            # Clear LEDs
+            if LED_ENABLED:
+                clear_all_leds()
+            
+            log("Waiting for box to open...")
+            continue
+        
+        if not is_open:
+            # Box is closed - wait for it to open
+            time.sleep(REED_SWITCH_POLL_INTERVAL)
+            continue
+        
+        # Box is open - proceed with conversation
+        
         # Opening message (only if not skipping)
         if not skip_opening_message:
             log("📢 Sending opening message")
@@ -1131,6 +1253,17 @@ def handle_conversation():
         log("🩺 Entering active assistance mode")
         
         while True:
+            # Check if box is still open during conversation
+            state_changed, is_open = check_box_state_change()
+            if state_changed and not is_open:
+                log("📦 Box closed during conversation - resetting state")
+                conversation_history = []
+                skip_opening_message = False
+                current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                if LED_ENABLED:
+                    clear_all_leds()
+                break  # Exit active assistance loop
+            
             # Process the user's response
             outcome, response_text = process_response(user_text, conversation_history)
             
@@ -1182,6 +1315,17 @@ def handle_conversation():
                 
                 # Wait for acknowledgement OR wake word
                 while True:
+                    # Check box state during step completion wait
+                    state_changed, is_open = check_box_state_change()
+                    if state_changed and not is_open:
+                        log("📦 Box closed during step completion - resetting state")
+                        conversation_history = []
+                        skip_opening_message = False
+                        current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                        if LED_ENABLED:
+                            clear_all_leds()
+                        break  # Exit step completion loop
+                    
                     wake_word = wait_for_wake_word()
                     
                     if wake_word == "STEP_COMPLETE":
@@ -1339,6 +1483,10 @@ def signal_handler(signum, frame):
             clear_all_leds()
     except Exception:
         pass
+    try:
+        cleanup_reed_switch()
+    except Exception:
+        pass
     # Fast, non-blocking audio cleanup
     try:
         cleanup_audio_processes(fast=True)
@@ -1365,6 +1513,10 @@ async def main():
     if LED_ENABLED:
         init_led_strip()
     
+    # Initialize reed switch
+    if REED_SWITCH_ENABLED:
+        init_reed_switch()
+    
     # Initialize OpenAI client
     openai.api_key = API_KEY
     
@@ -1378,6 +1530,7 @@ async def main():
     log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD}, Silence Duration: {SILENCE_DURATION}s")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")
+    log(f"Reed Switch: {'Enabled' if REED_SWITCH_ENABLED else 'Disabled'}, Pin: {REED_SWITCH_PIN}, Debounce: {REED_SWITCH_DEBOUNCE_MS}ms")
     
     try:
         # Start the conversation flow
@@ -1388,6 +1541,7 @@ async def main():
         # Cleanup
         if LED_ENABLED:
             clear_all_leds()
+        cleanup_reed_switch()
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
