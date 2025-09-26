@@ -355,7 +355,7 @@ def _speak_pulser_loop():
     t = 0.0
     try:
         while not speak_pulse_stop.is_set() and LED_ENABLED and led_strip:
-            brightness = 0.2 + 0.6 * (0.5 * (1 + math.sin(t)))
+            brightness = 0.3 + 0.7 * (0.5 * (1 + math.sin(t)))
             # Pulse both ranges
             for start_idx, end_idx in ranges:
                 _pulse_range_once(start_idx, end_idx, r, g, b, brightness)
@@ -855,6 +855,7 @@ def listen_for_speech(timeout=T_NORMAL):
         silence_start_time = None
         speech_start_time = None
         speech_detected = False
+        silence_duration = 0.0  # Track continuous silence duration
         
         # Calculate frame duration for timing
         frame_duration = frame_len / mic_sr  # seconds per frame
@@ -883,6 +884,7 @@ def listen_for_speech(timeout=T_NORMAL):
                     log("Speech detected, continuing capture...")
                     speech_detected = True
                 silence_start_time = None  # Reset silence timer
+                silence_duration = 0.0  # Reset silence duration
             else:
                 # No speech detected
                 if speech_detected:
@@ -897,9 +899,11 @@ def listen_for_speech(timeout=T_NORMAL):
                             break
                 else:
                     # Haven't detected speech yet, keep waiting
-                    if current_time - speech_start_time >= MIN_SPEECH_DURATION:
-                        # Been waiting too long without speech, give up
-                        log("No speech detected within minimum duration, stopping")
+                    silence_duration = current_time - speech_start_time
+                    
+                    # If we've been in silence for more than 3 seconds, give up
+                    if silence_duration >= 3.0:
+                        log(f"Extended silence detected for {silence_duration:.1f}s, stopping capture")
                         break
             
             # Safety check: don't capture too long
