@@ -1241,6 +1241,28 @@ def cleanup_audio_processes(fast: bool = False):
     except Exception as e:
         log(f"Warning: Could not cleanup audio processes: {e}")
 
+def reset_audio_devices():
+    """Reset audio devices to clean state"""
+    try:
+        log("🔄 Resetting audio devices...")
+        
+        # Kill all audio processes
+        subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
+        
+        # Reset ALSA
+        subprocess.run(["alsactl", "restore"], check=False, capture_output=True)
+        
+        # Wait for devices to settle
+        time.sleep(2.0)
+        
+        log("✅ Audio devices reset")
+        return True
+    except Exception as e:
+        log(f"⚠️  Audio device reset failed: {e}")
+        return False
+
 def test_audio_devices():
     """Test if audio devices are available"""
     try:
@@ -1293,15 +1315,15 @@ async def main():
     """Main entry point"""
     global current_state
     
-    # # Clean up any existing audio processes first
-    # log("🧹 Cleaning up existing audio processes...")
-    # cleanup_audio_processes()
+    # Reset audio devices to clean state (fixes noisy boot issues)
+    log("🔄 Resetting audio devices...")
+    reset_audio_devices()
     
-    # # Test audio devices
-    # log("🔊 Testing audio devices...")
-    # if not test_audio_devices():
-    #     log("❌ Audio device test failed. Please check your audio configuration.")
-    #     return
+    # Test audio devices
+    log("🔊 Testing audio devices...")
+    if not test_audio_devices():
+        log("❌ Audio device test failed. Please check your audio configuration.")
+        return
     
     # Initialize LED strip
     if LED_ENABLED:
