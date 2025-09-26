@@ -122,6 +122,7 @@ speak_pulse_thread = None
 speak_pulse_stop = threading.Event()
 conversation_history = []
 current_state = ConversationState.WAITING_FOR_WAKE_WORD
+current_lit_item = None  # Track the currently lit item for LED preservation
 
 # Reed switch state variables
 box_is_open = False
@@ -343,6 +344,20 @@ def init_led_strip():
 
 def clear_all_leds():
     """Turn off all LEDs"""
+    global current_lit_item
+    if not LED_ENABLED or not led_strip:
+        return
+    
+    try:
+        for i in range(led_strip.numPixels()):
+            led_strip.setPixelColor(i, 0)
+        led_strip.show()
+        current_lit_item = None  # Clear the tracked item
+    except Exception as e:
+        log(f"Error clearing LEDs: {e}")
+
+def clear_all_leds_preserve_item():
+    """Turn off all LEDs but preserve the current item tracking"""
     if not LED_ENABLED or not led_strip:
         return
     
@@ -352,6 +367,63 @@ def clear_all_leds():
         led_strip.show()
     except Exception as e:
         log(f"Error clearing LEDs: {e}")
+
+def get_current_item_leds():
+    """Get the LED indices for the currently lit item"""
+    global current_lit_item
+    if not current_lit_item or not LED_ENABLED:
+        return set()
+    
+    # Find the item in mappings (case-insensitive)
+    item_key = None
+    for key in LED_MAPPINGS.keys():
+        if key.lower() in current_lit_item.lower() or current_lit_item.lower() in key.lower():
+            item_key = key
+            break
+    
+    if not item_key:
+        return set()
+    
+    # Get all LED indices for this item
+    led_indices = set()
+    ranges = LED_MAPPINGS[item_key]
+    for start, end in ranges:
+        for i in range(start, end + 1):
+            led_indices.add(i)
+    
+    return led_indices
+
+def restore_item_leds():
+    """Restore the currently lit item LEDs after pulsing stops"""
+    global current_lit_item
+    if not current_lit_item or not LED_ENABLED or not led_strip:
+        return
+    
+    # Find the item in mappings (case-insensitive)
+    item_key = None
+    for key in LED_MAPPINGS.keys():
+        if key.lower() in current_lit_item.lower() or current_lit_item.lower() in key.lower():
+            item_key = key
+            break
+    
+    if not item_key:
+        return
+    
+    ranges = LED_MAPPINGS[item_key]
+    color = (0, 240, 255)  # Default cyan color
+    
+    try:
+        # Light up all ranges for this item
+        for start, end in ranges:
+            for i in range(start, end + 1):
+                if i < led_strip.numPixels():
+                    led_strip.setPixelColor(i, Color(*color))
+        
+        led_strip.show()
+        log(f"Restored LEDs for item: {current_lit_item}")
+        
+    except Exception as e:
+        log(f"Error restoring LEDs for {current_lit_item}: {e}")
 
 def _pulse_range_once(start_idx, end_idx, r, g, b, brightness):
     if not LED_ENABLED or not led_strip:
@@ -381,13 +453,17 @@ def _speak_pulser_loop():
             t += 0.25
             speak_pulse_stop.wait(0.08)
         
-        # Clear the speaking LEDs when pulsing stops
+        # Clear the speaking LEDs when pulsing stops, but preserve item LEDs in overlapping sections
         if LED_ENABLED and led_strip:
+            # Clear the speaking LED ranges
             for start_idx, end_idx in ranges:
                 for i in range(start_idx, end_idx + 1):
                     if i < led_strip.numPixels():
                         led_strip.setPixelColor(i, 0)
             led_strip.show()
+            
+            # Restore any item LEDs that were lit
+            restore_item_leds()
             
     except Exception as e:
         log(f"Speak pulser error: {e}")
@@ -413,6 +489,7 @@ def stop_speak_pulse():
 
 def light_item_leds(item_name, color=(0, 240, 255)):
     """Light up LEDs for a specific item (supports multiple ranges)"""
+    global current_lit_item
     if not LED_ENABLED or not led_strip:
         log(f"LED control not available - would light: {item_name}")
         return
@@ -432,8 +509,8 @@ def light_item_leds(item_name, color=(0, 240, 255)):
     log(f"Lighting LEDs for item: {item_name}")
     
     try:
-        # Clear all LEDs first
-        clear_all_leds()
+        # Clear all LEDs first but preserve item tracking
+        clear_all_leds_preserve_item()
         
         # Light up all ranges for this item
         for range_idx, (start, end) in enumerate(ranges):
@@ -443,6 +520,9 @@ def light_item_leds(item_name, color=(0, 240, 255)):
                     led_strip.setPixelColor(i, Color(*color))
         
         led_strip.show()
+        
+        # Track the currently lit item
+        current_lit_item = item_name
         
     except Exception as e:
         log(f"Error lighting LEDs for {item_name}: {e}")
@@ -1330,9 +1410,8 @@ def handle_conversation():
                     
                     if wake_word == "STEP_COMPLETE":
                         log("✅ Step complete detected, continuing procedure")
-                        # Clear LEDs when step is complete
-                        if LED_ENABLED:
-                            clear_all_leds()
+                        # Keep LEDs lit when step is complete - don't clear them
+                        log("💡 Keeping item LEDs lit after step completion")
                         # Continue procedure
                         user_text = "I've completed the step you asked me to do."
                         break  # Back to processing
