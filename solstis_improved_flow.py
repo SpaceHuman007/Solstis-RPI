@@ -1319,11 +1319,11 @@ async def main():
     log("🔄 Resetting audio devices...")
     reset_audio_devices()
     
-    # Test audio devices
-    log("🔊 Testing audio devices...")
-    if not test_audio_devices():
-        log("❌ Audio device test failed. Please check your audio configuration.")
-        return
+    # # Test audio devices
+    # log("🔊 Testing audio devices...")
+    # if not test_audio_devices():
+    #     log("❌ Audio device test failed. Please check your audio configuration.")
+    #     return
     
     # Initialize LED strip
     if LED_ENABLED:
