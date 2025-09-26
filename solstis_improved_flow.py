@@ -701,12 +701,14 @@ def process_response(user_text, conversation_history=None):
         response_lower = response_text.lower()
         
         # Check for user action required indicators FIRST (highest priority)
+        # Only detect as user action if it's asking for immediate medical action
         if any(phrase in response_lower for phrase in [
             "let me know when", "when you're done", "when you're ready", 
-            "say step complete", "tell me when", "let me know",
+            "say step complete", "tell me when", "let me know when you've",
             "apply", "use", "place", "put on", "secure", "wrap", "cover",
-            "from your kit", "from the highlighted", "let me know when you've",
-            "please apply", "please use", "please place", "please put"
+            "from your kit", "from the highlighted",
+            "please apply", "please use", "please place", "please put",
+            "now apply", "now use", "now place", "now put"
         ]):
             return ResponseOutcome.USER_ACTION_REQUIRED, response_text
         
@@ -742,7 +744,9 @@ def process_response(user_text, conversation_history=None):
             "you should be okay", "you'll be fine", "everything looks good",
             "keep an eye on", "monitor", "watch for", "signs of infection",
             "healthcare professional", "see a doctor", "medical attention",
-            "further assistance", "feel free to ask", "need further help"
+            "further assistance", "feel free to ask", "need further help",
+            "let me know if there are any changes", "let me know if you have any questions",
+            "let me know if you notice", "let me know if it", "let me know if the"
         ]):
             return ResponseOutcome.PROCEDURE_DONE, response_text
         
