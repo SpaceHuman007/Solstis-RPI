@@ -678,12 +678,12 @@ def process_response(user_text, conversation_history=None):
         # Add current user message
         messages.append({"role": "user", "content": user_text})
         
-        # Generate response
+        # Generate response with lower temperature for more conservative, clarification-focused responses
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages,
             max_tokens=500,
-            temperature=0.7
+            temperature=0.5  # Lower temperature for more conservative responses
         )
         
         response_text = response.choices[0].message.content.strip()
@@ -713,7 +713,16 @@ def process_response(user_text, conversation_history=None):
         ]):
             return ResponseOutcome.USER_ACTION_REQUIRED, response_text
         
-        # Default to needing more info
+        # Check for clarification-seeking indicators (NEW - prioritize asking for more info)
+        if any(phrase in response_lower for phrase in [
+            "where exactly", "how big", "how much", "how long", "what does", "can you tell me",
+            "is it", "are you", "do you", "what kind", "which", "how severe", "how bad",
+            "describe", "explain", "tell me more", "i need to know", "before i can help",
+            "to better understand", "to assess", "to determine", "to evaluate"
+        ]):
+            return ResponseOutcome.NEED_MORE_INFO, response_text
+        
+        # Default to needing more info (CHANGED - be more conservative)
         return ResponseOutcome.NEED_MORE_INFO, response_text
     
     except Exception as e:
@@ -749,6 +758,8 @@ def get_system_prompt():
     
     return f"""Always speak in English (US). You are Solstis, a calm and supportive AI medical assistant. You help users with first aid using only the items available in their specific kit.
 
+CRITICAL BEHAVIOR: Your primary role is to ASK QUESTIONS and gather information before providing any treatment. Always err on the side of asking for more details rather than making assumptions about the user's situation.
+
 AVAILABLE ITEMS IN YOUR KIT:
 {contents_str}
 
@@ -774,8 +785,10 @@ IMPORTANT: When referencing kit items, use the EXACT names from the list above. 
 
 Your role:
 • Be a real-time guide—natural, concise, supportive  
+• HEAVILY PRIORITIZE asking clarifying questions to fully understand the user's situation before providing any treatment
+• Always ask for specific details about the injury/symptom before recommending any treatment
 • Assess for life-threatening danger but don't overreact to common symptoms
-• Give clear, step-by-step instructions for self-treatment first
+• Give clear, step-by-step instructions for self-treatment ONLY after gathering sufficient information
 • Select only from the current kit (or common home items)  
 • Always use the EXACT item names from the kit contents list above
 • When sizes differ, avoid inches—say "large X highlighted in blue" vs "small X highlighted in orange"  
@@ -790,6 +803,14 @@ Your role:
 • Be comfortable discussing ALL body parts and functions without embarrassment or avoidance
 • Address sexual health concerns openly and provide appropriate medical advice
 • Always assess injury severity before deciding on treatment approach
+
+CRITICAL CLARIFICATION PRIORITY:
+- ALWAYS ask clarifying questions before providing any treatment recommendations
+- Default to asking for more information rather than assuming details
+- Ask about: location of injury, size, severity, duration, symptoms, pain level, bleeding amount
+- Only proceed with treatment after gathering sufficient details about the situation
+- If unsure about any aspect, ask for clarification rather than making assumptions
+- Examples of clarifying questions: "Where exactly is the cut?", "How big is the wound?", "Is it bleeding a lot or just a little?", "How long ago did this happen?", "What does the pain feel like?"
 
 IMPORTANT STYLE & FLOW:
 - Keep responses to 1-2 short sentences
