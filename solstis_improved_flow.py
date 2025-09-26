@@ -1064,12 +1064,19 @@ def handle_conversation():
     
     log("🎯 Starting improved conversation flow")
     
+    # Flag to track if we should skip opening message
+    skip_opening_message = False
+    
     # Main interaction loop
     while True:
-        # Opening message
-        log("📢 Sending opening message")
-        say(opening_message())
-        current_state = ConversationState.OPENING
+        # Opening message (only if not skipping)
+        if not skip_opening_message:
+            log("📢 Sending opening message")
+            say(opening_message())
+            current_state = ConversationState.OPENING
+        else:
+            log("⏭️  Skipping opening message")
+            skip_opening_message = False  # Reset flag
         
         # Listen for initial response
         log("👂 Listening for initial response")
@@ -1090,6 +1097,8 @@ def handle_conversation():
                 wake_word = wait_for_wake_word()
                 if wake_word == "SOLSTIS":
                     say(prompt_continue_help())
+                    # Set flag to skip opening message on next iteration
+                    skip_opening_message = True
                     continue
                 else:
                     continue
@@ -1111,6 +1120,8 @@ def handle_conversation():
             wake_word = wait_for_wake_word()
             if wake_word == "SOLSTIS":
                 say(prompt_continue_help())
+                # Set flag to skip opening message on next iteration
+                skip_opening_message = True
                 continue
             else:
                 continue
@@ -1146,6 +1157,8 @@ def handle_conversation():
                     wake_word = wait_for_wake_word()
                     if wake_word == "SOLSTIS":
                         say(prompt_continue_help())
+                        # Set flag to skip opening message on next iteration
+                        skip_opening_message = True
                         break  # Exit active assistance loop
                     else:
                         break
@@ -1209,6 +1222,8 @@ def handle_conversation():
                 wake_word = wait_for_wake_word()
                 if wake_word == "SOLSTIS":
                     say(prompt_continue_help())
+                    # Set flag to skip opening message on next iteration
+                    skip_opening_message = True
                     audio_data = listen_for_speech(timeout=T_NORMAL)
                     
                     if audio_data is None:
