@@ -1007,14 +1007,14 @@ def text_to_speech_elevenlabs(text):
     """Convert text to speech using ElevenLabs TTS API"""
     try:
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}, format=pcm_24khz")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}, format=pcm_24000")
         
         # ElevenLabs TTS API endpoint
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
         
         # Prepare headers
         headers = {
-            "Accept": "audio/pcm;rate=24000",  # Use PCM format with 24kHz sample rate
+            "Accept": "audio/pcm",  # Request PCM format
             "Content-Type": "application/json",
             "xi-api-key": ELEVENLABS_API_KEY
         }
@@ -1023,6 +1023,7 @@ def text_to_speech_elevenlabs(text):
         data = {
             "text": text,
             "model_id": ELEVENLABS_MODEL_ID,
+            "output_format": "pcm_24000",  # PCM at 24kHz sample rate
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.5
@@ -1336,7 +1337,7 @@ def play_audio(audio_data):
                 subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # ElevenLabs returns PCM format at 24kHz, use aplay directly
+            # ElevenLabs now returns PCM format at 24kHz, use aplay directly
             log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
             log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
             player = spawn_aplay(24000)
