@@ -54,12 +54,27 @@ You can change the voice by updating `ELEVENLABS_VOICE_ID` in your `.env` file. 
 - **Rachel**: `21m00Tcm4TlvDq8ikWAM`
 - **Sam**: `yoZ06aMxZJJ28mfd3POQ`
 
+## Quick Setup
+
+1. **Install system dependencies:**
+   ```bash
+   chmod +x install_audio.sh
+   ./install_audio.sh
+   ```
+
+2. **Install Python packages:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Set up your .env file** with API keys (see Configuration section below)
+
 ## Usage
 
 Run the ElevenLabs version:
 
 ```bash
-python3 solstis_elevenlabs_flow.py
+sudo python3 solstis_elevenlabs_flow.py
 ```
 
 ## Features

@@ -2,7 +2,7 @@
 # Solstis Voice Assistant with ElevenLabs TTS and STT Integration
 # Implements dual wake word system and structured conversation states
 
-import asyncio, base64, json, os, signal, subprocess, sys, threading, time, io, wave, types, audioop, struct, math
+import asyncio, base64, json, os, signal, subprocess, sys, threading, time, io, wave, types, audioop, struct, math, tempfile
 from datetime import datetime
 from dotenv import load_dotenv
 import requests
