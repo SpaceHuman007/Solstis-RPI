@@ -96,7 +96,7 @@ Install system audio packages:
 
 ```bash
 sudo apt-get update
-sudo apt-get install mpg123 alsa-utils
+sudo apt-get install alsa-utils
 ```
 
 Make sure you have:
@@ -104,11 +104,10 @@ Make sure you have:
 - OpenAI API key (for chat)
 - Picovoice access key
 - Wake word model files (.ppn files)
-- `mpg123` installed for MP3 audio playback
 
 ## Differences from OpenAI Version
 
-1. **Audio Format**: ElevenLabs TTS returns MP3 format, which is handled by the audio processing functions
+1. **Audio Format**: ElevenLabs TTS returns PCM format (same as OpenAI) - no mpg123 needed!
 2. **API Calls**: Uses REST API calls to ElevenLabs instead of OpenAI SDK
 3. **Voice Quality**: Generally higher quality and more natural-sounding speech
 4. **Cost**: ElevenLabs pricing may differ from OpenAI TTS pricing
@@ -116,7 +115,7 @@ Make sure you have:
 ## Troubleshooting
 
 ### Audio Issues
-- **No audio playback**: Check that `mpg123` is installed and working
+- **No audio playback**: Check that `aplay` is working (same as OpenAI version)
 - **Audio device conflicts**: The system automatically avoids using the same device for input/output
 - **STT not working**: Verify ElevenLabs API key and model_id parameter
 
@@ -131,10 +130,15 @@ This will test:
 - mpg123 compatibility with different devices
 - Simple audio playback methods
 
+If you need test audio files, create them with:
+```bash
+python3 create_test_audio.py
+```
+
 ### Common Problems
 - **Import errors**: Make sure all Python packages are installed
 - **GPIO errors**: Run with `sudo` for GPIO access
 - **Audio device busy**: Check if another process is using the audio device
-- **mpg123 exit code 1**: Usually indicates audio device conflicts or permissions
+- **aplay errors**: Usually indicates audio device conflicts or permissions
 - **ElevenLabs API errors**: Ensure API key is valid and has sufficient credits
 - **Voice ID issues**: Check that the voice ID exists and is accessible with your API key
