@@ -40,7 +40,7 @@ if not ELEVENLABS_API_KEY:
     print("Missing ELEVENLABS_API_KEY", file=sys.stderr); sys.exit(1)
 
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam voice
-ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_monolingual_v1")
+ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
 
 # OpenAI config (for chat completion only)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
