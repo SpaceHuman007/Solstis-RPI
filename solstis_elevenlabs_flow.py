@@ -1009,8 +1009,8 @@ def text_to_speech_elevenlabs(text):
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_24000")
         
-        # ElevenLabs TTS API endpoint - try streaming endpoint for PCM
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream"
+        # ElevenLabs TTS API endpoint with PCM format as query parameter
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_24000"
         
         # Prepare headers
         headers = {
@@ -1019,11 +1019,10 @@ def text_to_speech_elevenlabs(text):
             "xi-api-key": ELEVENLABS_API_KEY
         }
         
-        # Prepare data
+        # Prepare data (output_format is now in URL query parameter)
         data = {
             "text": text,
             "model_id": "eleven_turbo_v2_5",  # Use turbo model that fully supports PCM
-            "output_format": "pcm_24000",  # PCM at 24kHz sample rate
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.5
