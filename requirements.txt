@@ -7,6 +7,9 @@ python-dotenv>=1.0.0
 # OpenAI API for GPT-4o mini and TTS
 openai>=1.0.0
 
+# ElevenLabs API for TTS and STT
+requests>=2.31.0
+
 # Picovoice for wake word detection
 pvporcupine>=3.0.0
 
@@ -22,3 +25,6 @@ rpi_ws281x>=4.3.0
 # System dependencies (install via package manager):
 # - ALSA development libraries: sudo apt-get install libasound2-dev (Ubuntu/Debian)
 # - Python development headers: sudo apt-get install python3-dev (Ubuntu/Debian)
+# - Audio utilities: sudo apt-get install alsa-utils mpg123 (Ubuntu/Debian)
+#   - alsa-utils: provides aplay/arecord for audio I/O
+#   - mpg123: MP3 decoder for ElevenLabs TTS playback

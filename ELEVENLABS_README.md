@@ -77,11 +77,19 @@ Install the required packages:
 pip install requests pvporcupine python-dotenv
 ```
 
+Install system audio packages:
+
+```bash
+sudo apt-get update
+sudo apt-get install mpg123 alsa-utils
+```
+
 Make sure you have:
 - ElevenLabs API key
 - OpenAI API key (for chat)
 - Picovoice access key
 - Wake word model files (.ppn files)
+- `mpg123` installed for MP3 audio playback
 
 ## Differences from OpenAI Version
 
