@@ -1007,10 +1007,10 @@ def text_to_speech_elevenlabs(text):
     """Convert text to speech using ElevenLabs TTS API"""
     try:
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}, format=pcm_24000")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_24000")
         
-        # ElevenLabs TTS API endpoint
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+        # ElevenLabs TTS API endpoint - try streaming endpoint for PCM
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream"
         
         # Prepare headers
         headers = {
@@ -1022,7 +1022,7 @@ def text_to_speech_elevenlabs(text):
         # Prepare data
         data = {
             "text": text,
-            "model_id": ELEVENLABS_MODEL_ID,
+            "model_id": "eleven_turbo_v2_5",  # Use turbo model that fully supports PCM
             "output_format": "pcm_24000",  # PCM at 24kHz sample rate
             "voice_settings": {
                 "stability": 0.5,
@@ -1032,6 +1032,11 @@ def text_to_speech_elevenlabs(text):
         
         # Make request
         response = requests.post(url, json=data, headers=headers)
+        
+        # Debug: Log the full request details
+        log(f"🎤 ElevenLabs Request URL: {url}")
+        log(f"🎤 ElevenLabs Request Data: {data}")
+        log(f"🎤 ElevenLabs Request Headers: {headers}")
         
         if response.status_code == 200:
             audio_data = response.content
@@ -1337,10 +1342,20 @@ def play_audio(audio_data):
                 subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # ElevenLabs now returns PCM format at 24kHz, use aplay directly
-            log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
-            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(24000)
+            # Check if audio data is MP3 (ElevenLabs might still return MP3 despite PCM request)
+            is_mp3 = (audio_data.startswith(b'ID3') or 
+                     audio_data.startswith(b'\xff\xfb') or 
+                     audio_data.startswith(b'\xff\xf3') or
+                     audio_data.startswith(b'\xff\xf2'))
+            
+            if is_mp3:
+                log(f"🔊 Audio Format: MP3 detected (ElevenLabs fallback), using mpg123")
+                log(f"🔊 Audio Config: device={OUT_DEVICE or 'default'}")
+                player = spawn_mpg123()
+            else:
+                log(f"🔊 Audio Format: PCM detected (ElevenLabs 24kHz), using aplay")
+                log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
+                player = spawn_aplay(24000)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             

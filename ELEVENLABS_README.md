@@ -107,7 +107,7 @@ Make sure you have:
 
 ## Differences from OpenAI Version
 
-1. **Audio Format**: ElevenLabs TTS returns PCM format at 24kHz (same as OpenAI) - no mpg123 needed!
+1. **Audio Format**: ElevenLabs TTS uses Turbo v2.5 model with PCM format at 24kHz
 2. **API Calls**: Uses REST API calls to ElevenLabs instead of OpenAI SDK
 3. **Voice Quality**: Generally higher quality and more natural-sounding speech
 4. **Cost**: ElevenLabs pricing may differ from OpenAI TTS pricing
