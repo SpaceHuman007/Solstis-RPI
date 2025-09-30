@@ -984,7 +984,7 @@ def transcribe_audio_elevenlabs(audio_data):
             # Read the WAV file and send to ElevenLabs with model_id
             with open(temp_file.name, 'rb') as audio_file:
                 files = {'file': ('audio.wav', audio_file.read(), 'audio/wav')}
-                data = {'model_id': 'whisper-1'}  # ElevenLabs uses whisper-1 for STT
+                data = {'model_id': 'scribe_v1'}  # ElevenLabs uses whisper-1 for STT
                 response = requests.post(url, headers=headers, files=files, data=data)
             
             # Clean up temp file
@@ -1103,23 +1103,6 @@ def spawn_aplay(rate):
         log(f"🔊 Spawn Error: Failed to create aplay process: {e}")
         raise
 
-def spawn_mpg123():
-    """Spawn mpg123 process for MP3 audio playback"""
-    device = OUT_DEVICE or 'default'
-    # Avoid using the same device for input and output
-    if device == 'plughw:3,0' and MIC_DEVICE == 'plughw:3,0':
-        device = 'default'  # Use default for output to avoid conflicts
-    
-    args = ["mpg123", "-q", "-", "-a", device]
-    log(f"🔊 MP3 Spawn Command: {' '.join(args)}")
-    
-    try:
-        process = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        log(f"🔊 MP3 Spawn Success: mpg123 process created with PID {process.pid}")
-        return process
-    except Exception as e:
-        log(f"🔊 MP3 Spawn Error: Failed to create mpg123 process: {e}")
-        raise
 
 def wait_for_wake_word(wake_word_type="SOLSTIS"):
     """
@@ -1339,23 +1322,12 @@ def play_audio(audio_data):
             if attempt > 0:
                 log(f"🔊 Audio Cleanup: Cleaning up before retry attempt {attempt + 1}")
                 subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-                subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # Check if audio data is MP3 (ElevenLabs might still return MP3 despite PCM request)
-            is_mp3 = (audio_data.startswith(b'ID3') or 
-                     audio_data.startswith(b'\xff\xfb') or 
-                     audio_data.startswith(b'\xff\xf3') or
-                     audio_data.startswith(b'\xff\xf2'))
-            
-            if is_mp3:
-                log(f"🔊 Audio Format: MP3 detected (ElevenLabs fallback), using mpg123")
-                log(f"🔊 Audio Config: device={OUT_DEVICE or 'default'}")
-                player = spawn_mpg123()
-            else:
-                log(f"🔊 Audio Format: PCM detected (ElevenLabs 24kHz), using aplay")
-                log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
-                player = spawn_aplay(24000)
+            # ElevenLabs now properly returns PCM format
+            log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
+            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(24000)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
@@ -1366,11 +1338,11 @@ def play_audio(audio_data):
             
             # Wait for playback to complete with timeout
             try:
-                return_code = player.wait(timeout=15)  # 15 second timeout for MP3
+                return_code = player.wait(timeout=10)  # 10 second timeout for PCM
                 log(f"🔊 Audio Complete: player finished with return code {return_code}")
                 
                 if return_code != 0:
-                    log(f"🔊 Audio Warning: player returned non-zero exit code {return_code}")
+                    log(f"🔊 Audio Warning: aplay returned non-zero exit code {return_code}")
                     if attempt < max_retries - 1:
                         log(f"🔊 Audio Retry: Attempting retry {attempt + 2}/{max_retries}")
                         time.sleep(1.0)
@@ -1400,7 +1372,6 @@ def play_audio(audio_data):
     # Final cleanup after all attempts
     try:
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
     except Exception:
         pass
 
@@ -1686,10 +1657,6 @@ def cleanup_audio_processes(fast: bool = False):
             except Exception:
                 pass
             try:
-                subprocess.Popen(["pkill", "-9", "-f", "mpg123"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-            try:
                 subprocess.Popen(["fuser", "-k", MIC_DEVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
@@ -1703,7 +1670,6 @@ def cleanup_audio_processes(fast: bool = False):
         # Normal blocking cleanup
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
         subprocess.run(["fuser", "-k", MIC_DEVICE], check=False, capture_output=True)
         if OUT_DEVICE:
             subprocess.run(["fuser", "-k", OUT_DEVICE], check=False, capture_output=True)
@@ -1720,7 +1686,6 @@ def reset_audio_devices():
         # Kill all audio processes
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
         
         # Reset ALSA
