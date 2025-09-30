@@ -969,8 +969,7 @@ def transcribe_audio_elevenlabs(audio_data):
         
         # Prepare headers
         headers = {
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "audio/wav"
+            "xi-api-key": ELEVENLABS_API_KEY
         }
         
         # Create a temporary WAV file
@@ -982,9 +981,11 @@ def transcribe_audio_elevenlabs(audio_data):
                 wav_file.setframerate(OUT_SR)
                 wav_file.writeframes(audio_data)
             
-            # Read the WAV file and send to ElevenLabs
+            # Read the WAV file and send to ElevenLabs with model_id
             with open(temp_file.name, 'rb') as audio_file:
-                response = requests.post(url, headers=headers, data=audio_file.read())
+                files = {'audio': ('audio.wav', audio_file.read(), 'audio/wav')}
+                data = {'model_id': 'whisper-1'}  # ElevenLabs uses whisper-1 for STT
+                response = requests.post(url, headers=headers, files=files, data=data)
             
             # Clean up temp file
             os.unlink(temp_file.name)
@@ -1095,10 +1096,12 @@ def spawn_aplay(rate):
 
 def spawn_mpg123():
     """Spawn mpg123 process for MP3 audio playback"""
-    args = ["mpg123", "-q", "-"]
-    if OUT_DEVICE:
-        args += ["-a", OUT_DEVICE]
+    device = OUT_DEVICE or 'default'
+    # Use plughw:3,0 for Respeaker if available, otherwise default
+    if device == 'default' and MIC_DEVICE == 'plughw:3,0':
+        device = 'plughw:3,0'
     
+    args = ["mpg123", "-q", "-", "-a", device]
     log(f"🔊 MP3 Spawn Command: {' '.join(args)}")
     
     try:
