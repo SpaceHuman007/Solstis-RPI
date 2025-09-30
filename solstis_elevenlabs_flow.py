@@ -1007,14 +1007,14 @@ def text_to_speech_elevenlabs(text):
     """Convert text to speech using ElevenLabs TTS API"""
     try:
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}, format=pcm")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}, format=pcm_24khz")
         
         # ElevenLabs TTS API endpoint
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
         
         # Prepare headers
         headers = {
-            "Accept": "audio/pcm",  # Request PCM format instead of MP3
+            "Accept": "audio/pcm;rate=24000",  # Use PCM format with 24kHz sample rate
             "Content-Type": "application/json",
             "xi-api-key": ELEVENLABS_API_KEY
         }
@@ -1034,7 +1034,10 @@ def text_to_speech_elevenlabs(text):
         
         if response.status_code == 200:
             audio_data = response.content
-            log(f"🎤 ElevenLabs TTS Success: Generated {len(audio_data)} bytes of PCM audio data")
+            # Check the actual sample rate from ElevenLabs response headers
+            content_type = response.headers.get('content-type', '')
+            log(f"🎤 ElevenLabs Response: Content-Type={content_type}")
+            log(f"🎤 ElevenLabs TTS Success: Generated {len(audio_data)} bytes of PCM audio data (24kHz)")
             return audio_data
         else:
             log(f"🎤 ElevenLabs TTS Error: {response.status_code} - {response.text}")
@@ -1310,6 +1313,15 @@ def listen_for_speech(timeout=T_NORMAL):
         except: pass
 
 # ---------- Audio Processing Functions ----------
+def detect_pcm_sample_rate(audio_data):
+    """Try to detect PCM sample rate from audio data length and duration"""
+    # ElevenLabs PCM is typically 22050Hz or 44100Hz
+    # For a typical "Hey there" phrase (~2 seconds), we can estimate
+    if len(audio_data) < 100000:  # Short audio
+        return 22050  # Common for voice
+    else:
+        return 44100  # Higher quality
+
 def play_audio(audio_data):
     """Play audio data using appropriate player based on format"""
     max_retries = 3
@@ -1324,10 +1336,10 @@ def play_audio(audio_data):
                 subprocess.run(["pkill", "-9", "-f", "mpg123"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # ElevenLabs now returns PCM format, so always use aplay
-            log(f"🔊 Audio Format: PCM (ElevenLabs), using aplay")
-            log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(OUT_SR)
+            # ElevenLabs returns PCM format at 24kHz, use aplay directly
+            log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
+            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(24000)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
