@@ -105,6 +105,29 @@ Make sure you have:
 - Picovoice access key
 - Wake word model files (.ppn files)
 
+## Voice Volume Control
+
+If some ElevenLabs voices are too quiet, you can adjust these environment variables:
+
+```bash
+# Voice settings for louder output
+export ELEVENLABS_STABILITY=0.5          # Voice consistency (0.0-1.0)
+export ELEVENLABS_SIMILARITY_BOOST=0.5   # Voice similarity (0.0-1.0) 
+export ELEVENLABS_STYLE=0.0              # Style exaggeration (0.0-1.0)
+export ELEVENLABS_SPEAKER_BOOST=true    # Boost speaker characteristics (true/false)
+```
+
+**For louder voices, try:**
+- `ELEVENLABS_SPEAKER_BOOST=true` (enabled by default)
+- `ELEVENLABS_SIMILARITY_BOOST=0.7` (higher = more distinctive/louder)
+- `ELEVENLABS_STYLE=0.2` (slight style boost can increase volume)
+
+**Alternative volume control methods:**
+1. **System volume**: Use `alsamixer` or `pavucontrol` to increase system volume
+2. **Audio device volume**: Some Respeaker devices have hardware volume controls
+3. **Different voice**: Try different ElevenLabs voices - some are naturally louder
+4. **Audio post-processing**: Add volume normalization in the audio pipeline
+
 ## Differences from OpenAI Version
 
 1. **Audio Format**: ElevenLabs TTS uses Turbo v2.5 model with PCM format at 24kHz

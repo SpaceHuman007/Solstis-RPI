@@ -42,6 +42,12 @@ if not ELEVENLABS_API_KEY:
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam voice
 ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
 
+# ElevenLabs voice settings for volume control
+ELEVENLABS_STABILITY = float(os.getenv("ELEVENLABS_STABILITY", "0.5"))
+ELEVENLABS_SIMILARITY_BOOST = float(os.getenv("ELEVENLABS_SIMILARITY_BOOST", "0.5"))
+ELEVENLABS_STYLE = float(os.getenv("ELEVENLABS_STYLE", "0.0"))
+ELEVENLABS_SPEAKER_BOOST = os.getenv("ELEVENLABS_SPEAKER_BOOST", "true").lower() == "true"
+
 # OpenAI config (for chat completion only)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
@@ -1024,8 +1030,10 @@ def text_to_speech_elevenlabs(text):
             "text": text,
             "model_id": "eleven_turbo_v2_5",  # Use turbo model that fully supports PCM
             "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.5
+                "stability": ELEVENLABS_STABILITY,
+                "similarity_boost": ELEVENLABS_SIMILARITY_BOOST,
+                "style": ELEVENLABS_STYLE,  # Style exaggeration (0.0 = neutral)
+                "use_speaker_boost": ELEVENLABS_SPEAKER_BOOST  # Boost speaker characteristics for louder output
             }
         }
         
