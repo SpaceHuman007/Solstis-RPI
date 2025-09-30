@@ -115,7 +115,26 @@ Make sure you have:
 
 ## Troubleshooting
 
-- Ensure your ElevenLabs API key is valid and has sufficient credits
-- Check that the voice ID exists and is accessible with your API key
-- Verify audio device configuration matches your hardware setup
-- Test audio devices before running the full application
+### Audio Issues
+- **No audio playback**: Check that `mpg123` is installed and working
+- **Audio device conflicts**: The system automatically avoids using the same device for input/output
+- **STT not working**: Verify ElevenLabs API key and model_id parameter
+
+### Debugging Tools
+Run the audio debug script to diagnose issues:
+```bash
+python3 debug_audio.py
+```
+
+This will test:
+- Available audio devices
+- mpg123 compatibility with different devices
+- Simple audio playback methods
+
+### Common Problems
+- **Import errors**: Make sure all Python packages are installed
+- **GPIO errors**: Run with `sudo` for GPIO access
+- **Audio device busy**: Check if another process is using the audio device
+- **mpg123 exit code 1**: Usually indicates audio device conflicts or permissions
+- **ElevenLabs API errors**: Ensure API key is valid and has sufficient credits
+- **Voice ID issues**: Check that the voice ID exists and is accessible with your API key
