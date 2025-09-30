@@ -1,0 +1,98 @@
+# Solstis ElevenLabs Voice Assistant
+
+This is a version of the Solstis voice assistant that uses ElevenLabs for both Text-to-Speech (TTS) and Speech-to-Text (STT) instead of OpenAI's services.
+
+## Key Changes from Original
+
+### ElevenLabs Integration
+- **TTS**: Uses ElevenLabs API instead of OpenAI TTS
+- **STT**: Uses ElevenLabs Speech-to-Text API instead of OpenAI Whisper
+- **Chat**: Still uses OpenAI GPT for conversation processing
+
+### Configuration Variables
+
+Add these environment variables to your `.env` file:
+
+```bash
+# ElevenLabs Configuration
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+ELEVENLABS_VOICE_ID=pNInz6obpgDQGcFmaJgB  # Default: Adam voice
+ELEVENLABS_MODEL_ID=eleven_monolingual_v1  # Default model
+
+# OpenAI Configuration (still needed for chat)
+OPENAI_API_KEY=your_openai_api_key_here
+MODEL=gpt-4-turbo  # Chat model
+
+# Picovoice Configuration (unchanged)
+PICOVOICE_ACCESS_KEY=your_picovoice_access_key_here
+SOLSTIS_WAKEWORD_PATH=Solstice_en_raspberry-pi_v3_0_0.ppn
+STEP_COMPLETE_WAKEWORD_PATH=step-complete_en_raspberry-pi_v3_0_0.ppn
+
+# Audio Configuration (unchanged)
+MIC_DEVICE=plughw:3,0
+OUT_SR=24000
+USER_NAME=User
+
+# LED and Reed Switch Configuration (unchanged)
+LED_ENABLED=true
+LED_COUNT=788
+REED_SWITCH_ENABLED=true
+REED_SWITCH_PIN=16
+```
+
+## ElevenLabs Voice Options
+
+You can change the voice by updating `ELEVENLABS_VOICE_ID` in your `.env` file. Some popular voice IDs:
+
+- **Adam** (default): `pNInz6obpgDQGcFmaJgB`
+- **Antoni**: `ErXwobaYiN019PkySvjV`
+- **Arnold**: `VR6AewLTigWG4xSOukaG`
+- **Bella**: `EXAVITQu4vr4xnSDxMaL`
+- **Domi**: `AZnzlk1XvdvUeBnXmlld`
+- **Elli**: `MF3mGyEYCl7XYWbV9V6O`
+- **Josh**: `TxGEqnHWrfWFTfGW9XjX`
+- **Rachel**: `21m00Tcm4TlvDq8ikWAM`
+- **Sam**: `yoZ06aMxZJJ28mfd3POQ`
+
+## Usage
+
+Run the ElevenLabs version:
+
+```bash
+python3 solstis_elevenlabs_flow.py
+```
+
+## Features
+
+- **High-quality TTS**: ElevenLabs provides more natural-sounding speech
+- **Accurate STT**: ElevenLabs speech recognition with good accuracy
+- **Same functionality**: All original features preserved (LED control, reed switch, wake words, etc.)
+- **Medical kit assistance**: Same comprehensive medical kit item detection and LED highlighting
+
+## Requirements
+
+Install the required packages:
+
+```bash
+pip install requests pvporcupine python-dotenv
+```
+
+Make sure you have:
+- ElevenLabs API key
+- OpenAI API key (for chat)
+- Picovoice access key
+- Wake word model files (.ppn files)
+
+## Differences from OpenAI Version
+
+1. **Audio Format**: ElevenLabs TTS returns MP3 format, which is handled by the audio processing functions
+2. **API Calls**: Uses REST API calls to ElevenLabs instead of OpenAI SDK
+3. **Voice Quality**: Generally higher quality and more natural-sounding speech
+4. **Cost**: ElevenLabs pricing may differ from OpenAI TTS pricing
+
+## Troubleshooting
+
+- Ensure your ElevenLabs API key is valid and has sufficient credits
+- Check that the voice ID exists and is accessible with your API key
+- Verify audio device configuration matches your hardware setup
+- Test audio devices before running the full application

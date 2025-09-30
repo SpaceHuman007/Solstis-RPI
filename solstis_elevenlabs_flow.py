@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-# Solstis Voice Assistant with Improved Conversation Flow
+# Solstis Voice Assistant with ElevenLabs TTS and STT Integration
 # Implements dual wake word system and structured conversation states
 
 import asyncio, base64, json, os, signal, subprocess, sys, threading, time, io, wave, types, audioop, struct, math
 from datetime import datetime
 from dotenv import load_dotenv
-import openai
-import tempfile
 import requests
 import pvporcupine  # pip install pvporcupine
 
@@ -28,7 +26,7 @@ except ImportError:
 
 load_dotenv(override=True)
 
-# --------- Config via env (Picovoice + OpenAI) ---------
+# --------- Config via env (Picovoice + ElevenLabs) ---------
 # Picovoice config
 PICOVOICE_ACCESS_KEY = os.getenv("PICOVOICE_ACCESS_KEY", "YOUR-PICOVOICE-ACCESSKEY-HERE")
 SOLSTIS_WAKEWORD_PATH = os.getenv("SOLSTIS_WAKEWORD_PATH", "Solstice_en_raspberry-pi_v3_0_0.ppn")
@@ -36,14 +34,20 @@ STEP_COMPLETE_WAKEWORD_PATH = os.getenv("STEP_COMPLETE_WAKEWORD_PATH", "step-com
 MIC_DEVICE = os.getenv("MIC_DEVICE", "plughw:3,0")
 MIC_SR = int(os.getenv("MIC_SR", "16000"))  # Porcupine requires 16k
 
-# OpenAI config
-API_KEY = os.getenv("OPENAI_API_KEY")
-if not API_KEY:
+# ElevenLabs config
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+if not ELEVENLABS_API_KEY:
+    print("Missing ELEVENLABS_API_KEY", file=sys.stderr); sys.exit(1)
+
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam voice
+ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_monolingual_v1")
+
+# OpenAI config (for chat completion only)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr); sys.exit(1)
 
 MODEL = os.getenv("MODEL", "gpt-4-turbo")
-TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
-TTS_VOICE = os.getenv("TTS_VOICE", "shimmer")
 
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
@@ -664,8 +668,10 @@ def process_response(user_text, conversation_history=None):
     Returns one of: NEED_MORE_INFO, USER_ACTION_REQUIRED, PROCEDURE_DONE
     """
     try:
+        import openai
+        
         # Initialize OpenAI client
-        client = openai.OpenAI(api_key=API_KEY)
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
         
         # Prepare messages
         messages = [
@@ -952,6 +958,91 @@ BLEEDING ASSESSMENT PROTOCOL:
 - Severity determines treatment order and emergency escalation
 """
 
+# ---------- ElevenLabs Integration ----------
+def transcribe_audio_elevenlabs(audio_data):
+    """Transcribe audio using ElevenLabs Speech-to-Text API"""
+    try:
+        log("🎤 ElevenLabs STT: Starting transcription")
+        
+        # ElevenLabs STT API endpoint
+        url = "https://api.elevenlabs.io/v1/speech-to-text"
+        
+        # Prepare headers
+        headers = {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "audio/wav"
+        }
+        
+        # Create a temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            # Convert PCM16 to WAV format
+            with wave.open(temp_file.name, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(OUT_SR)
+                wav_file.writeframes(audio_data)
+            
+            # Read the WAV file and send to ElevenLabs
+            with open(temp_file.name, 'rb') as audio_file:
+                response = requests.post(url, headers=headers, data=audio_file.read())
+            
+            # Clean up temp file
+            os.unlink(temp_file.name)
+        
+        if response.status_code == 200:
+            result = response.json()
+            transcript = result.get('text', '').strip()
+            log(f"🎤 ElevenLabs STT Success: '{transcript}'")
+            return transcript
+        else:
+            log(f"🎤 ElevenLabs STT Error: {response.status_code} - {response.text}")
+            return ""
+    
+    except Exception as e:
+        log(f"🎤 ElevenLabs STT Error: {e}")
+        return ""
+
+def text_to_speech_elevenlabs(text):
+    """Convert text to speech using ElevenLabs TTS API"""
+    try:
+        log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id={ELEVENLABS_MODEL_ID}")
+        
+        # ElevenLabs TTS API endpoint
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+        
+        # Prepare headers
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_API_KEY
+        }
+        
+        # Prepare data
+        data = {
+            "text": text,
+            "model_id": ELEVENLABS_MODEL_ID,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.5
+            }
+        }
+        
+        # Make request
+        response = requests.post(url, json=data, headers=headers)
+        
+        if response.status_code == 200:
+            audio_data = response.content
+            log(f"🎤 ElevenLabs TTS Success: Generated {len(audio_data)} bytes of audio data")
+            return audio_data
+        else:
+            log(f"🎤 ElevenLabs TTS Error: {response.status_code} - {response.text}")
+            return b""
+    
+    except Exception as e:
+        log(f"🎤 ElevenLabs TTS Error: {e}")
+        return b""
+
 # ---------- Voice Activity Detection ----------
 def calculate_rms(audio_data):
     """Calculate RMS (Root Mean Square) of audio data for voice activity detection"""
@@ -1199,63 +1290,7 @@ def listen_for_speech(timeout=T_NORMAL):
             if arec: arec.terminate()
         except: pass
 
-# ---------- OpenAI API Integration ----------
-def transcribe_audio(audio_data):
-    """Transcribe audio using OpenAI Whisper API"""
-    try:
-        # Create a temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-            # Convert PCM16 to WAV format
-            with wave.open(temp_file.name, 'wb') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(OUT_SR)
-                wav_file.writeframes(audio_data)
-            
-            # Transcribe using OpenAI Whisper
-            with open(temp_file.name, 'rb') as audio_file:
-                transcript = openai.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="text"
-                )
-            
-            # Clean up temp file
-            os.unlink(temp_file.name)
-            
-            return transcript.strip()
-    
-    except Exception as e:
-        log(f"Error transcribing audio: {e}")
-        return ""
-
-def text_to_speech(text):
-    """Convert text to speech using OpenAI TTS"""
-    try:
-        log(f"🎤 TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 TTS Config: model={TTS_MODEL}, voice={TTS_VOICE}, format=pcm")
-        
-        # Initialize OpenAI client
-        client = openai.OpenAI(api_key=API_KEY)
-        
-        # Generate speech
-        response = client.audio.speech.create(
-            model=TTS_MODEL,
-            voice=TTS_VOICE,
-            input=text,
-            response_format="pcm",
-            speed=1.0
-        )
-        
-        audio_size = len(response.content)
-        log(f"🎤 TTS Success: Generated {audio_size} bytes of audio data")
-        
-        return response.content
-    
-    except Exception as e:
-        log(f"🎤 TTS Error: {e}")
-        return b""
-
+# ---------- Audio Processing Functions ----------
 def play_audio(audio_data):
     """Play audio data using aplay with retry logic and device cleanup"""
     max_retries = 3
@@ -1318,9 +1353,9 @@ def play_audio(audio_data):
         pass
 
 def say(text):
-    """Convert text to speech and play it"""
+    """Convert text to speech and play it using ElevenLabs"""
     log(f"🗣️  Speaking: {text}")
-    audio_data = text_to_speech(text)
+    audio_data = text_to_speech_elevenlabs(text)
     if audio_data:
         start_speak_pulse()
         play_audio(audio_data)
@@ -1397,8 +1432,8 @@ def handle_conversation():
                 else:
                     continue
         
-        # Transcribe the response
-        user_text = transcribe_audio(audio_data)
+        # Transcribe the response using ElevenLabs
+        user_text = transcribe_audio_elevenlabs(audio_data)
         if not user_text:
             log("❌ No transcription received")
             continue
@@ -1468,7 +1503,7 @@ def handle_conversation():
                     else:
                         break
                 
-                user_text = transcribe_audio(audio_data)
+                user_text = transcribe_audio_elevenlabs(audio_data)
                 if not user_text:
                     log("❌ No transcription received")
                     continue
@@ -1517,7 +1552,7 @@ def handle_conversation():
                             log("🔇 No response after SOLSTIS wake word")
                             continue
                         
-                        user_text = transcribe_audio(audio_data)
+                        user_text = transcribe_audio_elevenlabs(audio_data)
                         if not user_text:
                             log("❌ No transcription received")
                             continue
@@ -1547,7 +1582,7 @@ def handle_conversation():
                     else:
                         break
                 
-                user_text = transcribe_audio(audio_data)
+                user_text = transcribe_audio_elevenlabs(audio_data)
                 if not user_text:
                     log("❌ No transcription received")
                     continue
@@ -1573,7 +1608,7 @@ def handle_conversation():
                         log("🔇 No response after procedure completion")
                         continue
                     
-                    user_text = transcribe_audio(audio_data)
+                    user_text = transcribe_audio_elevenlabs(audio_data)
                     if not user_text:
                         log("❌ No transcription received")
                         continue
@@ -1698,16 +1733,6 @@ async def main():
     """Main entry point"""
     global current_state
     
-    # # Reset audio devices to clean state (fixes noisy boot issues)
-    # log("🔄 Resetting audio devices...")
-    # reset_audio_devices()
-    
-    # # Test audio devices
-    # log("🔊 Testing audio devices...")
-    # if not test_audio_devices():
-    #     log("❌ Audio device test failed. Please check your audio configuration.")
-    #     return
-    
     # Initialize LED strip
     if LED_ENABLED:
         init_led_strip()
@@ -1716,14 +1741,11 @@ async def main():
     if REED_SWITCH_ENABLED:
         init_reed_switch()
     
-    # Initialize OpenAI client
-    openai.api_key = API_KEY
-    
-    log(f"🩺 Solstis Improved Flow Voice Assistant starting...")
+    log(f"🩺 Solstis ElevenLabs Voice Assistant starting...")
     log(f"User: {USER_NAME}")
     log(f"Model: {MODEL}")
-    log(f"TTS Model: {TTS_MODEL}")
-    log(f"TTS Voice: {TTS_VOICE}")
+    log(f"ElevenLabs Voice ID: {ELEVENLABS_VOICE_ID}")
+    log(f"ElevenLabs Model ID: {ELEVENLABS_MODEL_ID}")
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
     log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD}, Silence Duration: {SILENCE_DURATION}s")
