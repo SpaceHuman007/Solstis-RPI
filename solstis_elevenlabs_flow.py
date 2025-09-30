@@ -67,12 +67,19 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # RMS threshold for speech detection
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS threshold for speech detection
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.6"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
+
+# Noise adaptation settings
+NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "true").lower() == "true"
+NOISE_SAMPLES_COUNT = int(os.getenv("NOISE_SAMPLES_COUNT", "20"))  # Number of samples to measure noise floor
+NOISE_MULTIPLIER = float(os.getenv("NOISE_MULTIPLIER", "2.5"))  # Speech threshold = noise_floor * multiplier
+MIN_SPEECH_THRESHOLD = int(os.getenv("MIN_SPEECH_THRESHOLD", "200"))  # Minimum threshold regardless of noise
+MAX_SPEECH_THRESHOLD = int(os.getenv("MAX_SPEECH_THRESHOLD", "2000"))  # Maximum threshold regardless of noise
 
 # Timeout configurations
 T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
@@ -1074,10 +1081,43 @@ def calculate_rms(audio_data):
     rms = math.sqrt(sum_squares / len(samples))
     return rms
 
-def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD):
+def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, adaptive_threshold=None):
     """Determine if audio contains speech based on RMS threshold"""
     rms = calculate_rms(audio_data)
-    return rms > threshold
+    # Use adaptive threshold if provided, otherwise use static threshold
+    effective_threshold = adaptive_threshold if adaptive_threshold is not None else threshold
+    return rms > effective_threshold
+
+def measure_noise_floor(arec, frame_bytes, sample_count=NOISE_SAMPLES_COUNT):
+    """Measure background noise floor to adapt speech detection threshold"""
+    if not NOISE_ADAPTATION_ENABLED:
+        return SPEECH_THRESHOLD
+    
+    log(f"🔊 Measuring noise floor with {sample_count} samples...")
+    noise_samples = []
+    
+    for i in range(sample_count):
+        chunk = arec.stdout.read(frame_bytes)
+        if not chunk:
+            break
+        rms = calculate_rms(chunk)
+        noise_samples.append(rms)
+    
+    if not noise_samples:
+        log("⚠️ No noise samples collected, using default threshold")
+        return SPEECH_THRESHOLD
+    
+    # Calculate average noise floor
+    avg_noise = sum(noise_samples) / len(noise_samples)
+    
+    # Calculate adaptive threshold
+    adaptive_threshold = avg_noise * NOISE_MULTIPLIER
+    
+    # Clamp to min/max bounds
+    adaptive_threshold = max(MIN_SPEECH_THRESHOLD, min(MAX_SPEECH_THRESHOLD, adaptive_threshold))
+    
+    log(f"🔊 Noise floor: {avg_noise:.1f} RMS, Adaptive threshold: {adaptive_threshold:.1f} RMS")
+    return adaptive_threshold
 
 # ---------- Picovoice Wake Word Detection ----------
 def spawn_arecord(rate, device):
@@ -1228,6 +1268,9 @@ def listen_for_speech(timeout=T_NORMAL):
         log(f"Mic device: {MIC_DEVICE} @ {mic_sr} Hz | frame {frame_len} samples ({frame_bytes} bytes)")
         arec = spawn_arecord(mic_sr, MIC_DEVICE)
 
+        # Measure noise floor for adaptive threshold
+        adaptive_threshold = measure_noise_floor(arec, frame_bytes)
+
         # Capture audio until speech pause
         log("Capturing audio until speech pause...")
         audio_buffer = b""
@@ -1254,13 +1297,12 @@ def listen_for_speech(timeout=T_NORMAL):
             
             # Check for speech in this frame
             current_time = time.time()
-            if speech_start_time is None:
-                speech_start_time = current_time
             
-            if is_speech_detected(chunk, SPEECH_THRESHOLD):
+            if is_speech_detected(chunk, SPEECH_THRESHOLD, adaptive_threshold):
                 if not speech_detected:
                     log("Speech detected, continuing capture...")
                     speech_detected = True
+                    speech_start_time = current_time  # Only start timing when speech is first detected
                 silence_start_time = None  # Reset silence timer
             else:
                 # No speech detected
@@ -1276,13 +1318,13 @@ def listen_for_speech(timeout=T_NORMAL):
                             break
                 else:
                     # Haven't detected speech yet, keep waiting
-                    if current_time - speech_start_time >= MIN_SPEECH_DURATION:
+                    if current_time - start_time >= MIN_SPEECH_DURATION:
                         # Been waiting too long without speech, give up
                         log("No speech detected within minimum duration, stopping")
                         break
             
-            # Safety check: don't capture too long
-            if current_time - speech_start_time >= MAX_SPEECH_DURATION:
+            # Safety check: don't capture too long (only after speech has been detected)
+            if speech_detected and speech_start_time and current_time - speech_start_time >= MAX_SPEECH_DURATION:
                 log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
                 break
 
@@ -1779,6 +1821,7 @@ async def main():
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
     log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD}, Silence Duration: {SILENCE_DURATION}s")
+    log(f"Noise Adaptation - Enabled: {NOISE_ADAPTATION_ENABLED}, Multiplier: {NOISE_MULTIPLIER}x, Samples: {NOISE_SAMPLES_COUNT}")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")
     log(f"Reed Switch: {'Enabled' if REED_SWITCH_ENABLED else 'Disabled'}, Pin: {REED_SWITCH_PIN}, Debounce: {REED_SWITCH_DEBOUNCE_MS}ms")
