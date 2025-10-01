@@ -823,132 +823,16 @@ def process_response(user_text, conversation_history=None):
     """
     try:
         import openai
-        import numpy as np
-        from sklearn.metrics.pairwise import cosine_similarity
         
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
         
-        # Enhanced semantic analysis for better outcome detection
-        def get_semantic_similarity(text, reference_phrases):
-            """Calculate semantic similarity between text and reference phrases using OpenAI embeddings"""
-            try:
-                # Get embedding for the input text
-                response = client.embeddings.create(
-                    model="text-embedding-3-small",
-                    input=text
-                )
-                text_embedding = np.array(response.data[0].embedding)
-                
-                # Get embeddings for reference phrases
-                reference_embeddings = []
-                for phrase in reference_phrases:
-                    ref_response = client.embeddings.create(
-                        model="text-embedding-3-small",
-                        input=phrase
-                    )
-                    reference_embeddings.append(np.array(ref_response.data[0].embedding))
-                
-                # Calculate cosine similarities
-                similarities = cosine_similarity([text_embedding], reference_embeddings)[0]
-                return max(similarities) if len(similarities) > 0 else 0.0
-                
-            except Exception as e:
-                log(f"Error in semantic similarity calculation: {e}")
-                return 0.0
-        
+        # Enhanced keyword analysis with confidence scoring (no API calls)
         def analyze_response_with_confidence(response_text, conversation_history):
-            """Analyze response with confidence scoring and context awareness"""
+            """Analyze response with confidence scoring and context awareness using weighted keywords"""
             response_lower = response_text.lower()
             
-            # Define semantic reference phrases for each outcome type
-            user_action_phrases = [
-                "please apply the bandage and let me know when you're done",
-                "use the gauze pad and tell me when finished",
-                "place the dressing and say step complete when ready",
-                "apply the ointment and let me know when complete",
-                "wrap the bandage and notify me when done"
-            ]
-            
-            procedure_done_phrases = [
-                "the procedure is now complete and you should be fine",
-                "treatment is finished and you're all set",
-                "everything looks good and you're done",
-                "the procedure is complete and you should be okay",
-                "treatment finished and you'll be fine"
-            ]
-            
-            need_more_info_phrases = [
-                "I need more information to help you properly",
-                "can you tell me more about the injury",
-                "I need additional details to assess the situation",
-                "please describe the problem in more detail",
-                "I need to understand better before helping"
-            ]
-            
-            emergency_phrases = [
-                "this is an emergency and you need immediate medical attention",
-                "call 911 immediately for this critical situation",
-                "this requires urgent medical care right now",
-                "go to the emergency room immediately",
-                "seek immediate medical attention for this"
-            ]
-            
-            # Calculate semantic similarities
-            user_action_score = get_semantic_similarity(response_text, user_action_phrases)
-            procedure_done_score = get_semantic_similarity(response_text, procedure_done_phrases)
-            need_more_info_score = get_semantic_similarity(response_text, need_more_info_phrases)
-            emergency_score = get_semantic_similarity(response_text, emergency_phrases)
-            
-            # Context awareness - analyze conversation history
-            context_bonus = 0.0
-            if conversation_history and len(conversation_history) > 0:
-                # If previous exchanges were asking for info, boost need_more_info
-                recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
-                recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
-                
-                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe", "tell me"]):
-                    context_bonus = 0.1
-                    need_more_info_score += context_bonus
-                
-                # If previous exchanges were giving instructions, boost user_action
-                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
-                    context_bonus = 0.1
-                    user_action_score += context_bonus
-            
-            # Use configurable confidence threshold for semantic analysis
-            threshold = SEMANTIC_THRESHOLD
-            
-            # Determine outcome based on highest scoring category
-            scores = {
-                ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
-                ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
-                ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
-                ResponseOutcome.EMERGENCY_SITUATION: emergency_score
-            }
-            
-            best_outcome = max(scores, key=scores.get)
-            best_score = scores[best_outcome]
-            
-            log(f"🎯 Semantic Analysis Scores:")
-            log(f"   User Action: {user_action_score:.3f}")
-            log(f"   Procedure Done: {procedure_done_score:.3f}")
-            log(f"   Need More Info: {need_more_info_score:.3f}")
-            log(f"   Emergency: {emergency_score:.3f}")
-            log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
-            
-            # If semantic analysis is confident, use it
-            if best_score >= threshold:
-                return best_outcome, best_score
-            
-            # Fall back to enhanced keyword analysis with confidence scoring
-            return enhanced_keyword_analysis(response_text, conversation_history)
-        
-        def enhanced_keyword_analysis(response_text, conversation_history):
-            """Enhanced keyword analysis with confidence scoring"""
-            response_lower = response_text.lower()
-            
-            # Weighted keyword analysis
+            # Weighted keyword analysis (keeping the sophisticated weights)
             user_action_keywords = {
                 "let me know when": 0.9, "when you're done": 0.9, "when you're ready": 0.8,
                 "say step complete": 0.95, "tell me when": 0.8, "apply": 0.7, "use": 0.6,
@@ -1026,6 +910,7 @@ def process_response(user_text, conversation_history=None):
             
             return best_outcome, best_score
         
+        
         # Prepare messages
         messages = [
             {"role": "system", "content": get_system_prompt()}
@@ -1058,17 +943,6 @@ def process_response(user_text, conversation_history=None):
         
         # Use enhanced analysis with confidence scoring
         outcome, confidence = analyze_response_with_confidence(response_text, conversation_history)
-        
-        # Apply feedback learning adjustments
-        adjusted_confidence = feedback_learning.get_adjusted_confidence(response_text, confidence, outcome)
-        
-        # Log confidence level for debugging
-        if adjusted_confidence < 0.5:
-            log(f"⚠️  Low confidence detection ({adjusted_confidence:.3f}) - using fallback")
-        
-        # Log learning stats periodically
-        if len(conversation_history) % 10 == 0:  # Every 10 exchanges
-            log(f"📚 Learning Stats: {feedback_learning.get_learning_stats()}")
         
         return outcome, response_text
     
