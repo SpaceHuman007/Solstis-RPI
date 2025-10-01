@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Solstis Voice Assistant with ElevenLabs TTS and STT Integration
-# Implements dual wake word system and structured conversation states
+# Implements ChatGPT-based conversation state detection instead of semantic embedding
 
 import asyncio, base64, json, os, signal, subprocess, sys, threading, time, io, wave, types, audioop, struct, math, tempfile
 from datetime import datetime
@@ -39,7 +39,7 @@ ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 if not ELEVENLABS_API_KEY:
     print("Missing ELEVENLABS_API_KEY", file=sys.stderr); sys.exit(1)
 
-ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Adam voice
 ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
 
 # ElevenLabs voice settings for volume control
@@ -48,7 +48,7 @@ ELEVENLABS_SIMILARITY_BOOST = float(os.getenv("ELEVENLABS_SIMILARITY_BOOST", "0.
 ELEVENLABS_STYLE = float(os.getenv("ELEVENLABS_STYLE", "0.0"))
 ELEVENLABS_SPEAKER_BOOST = os.getenv("ELEVENLABS_SPEAKER_BOOST", "true").lower() == "true"
 
-# OpenAI config (for chat completion only)
+# OpenAI config (for chat completion and state detection)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     print("Missing OPENAI_API_KEY", file=sys.stderr); sys.exit(1)
@@ -70,7 +70,7 @@ USER_NAME = os.getenv("USER_NAME", "User")
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS threshold for speech detection
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.0"))
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.8"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
 
@@ -113,17 +113,12 @@ REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "500"))  # De
 REED_SWITCH_CONFIRM_COUNT = int(os.getenv("REED_SWITCH_CONFIRM_COUNT", "5"))  # Number of consistent readings required
 REED_SWITCH_POLL_INTERVAL = float(os.getenv("REED_SWITCH_POLL_INTERVAL", "0.2"))  # Polling interval in seconds
 
-# Enhanced procedure state detection config
-SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.7"))  # Confidence threshold for semantic analysis
-SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL", "text-embedding-3-small")  # OpenAI embedding model
-MIN_CONFIDENCE_THRESHOLD = float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.5"))  # Minimum confidence threshold
-MAX_CONFIDENCE_THRESHOLD = float(os.getenv("MAX_CONFIDENCE_THRESHOLD", "0.95"))  # Maximum confidence threshold
-CONTEXT_WINDOW_SIZE = int(os.getenv("CONTEXT_WINDOW_SIZE", "4"))  # Number of recent messages to analyze for context
-CONTEXT_BONUS_WEIGHT = float(os.getenv("CONTEXT_BONUS_WEIGHT", "0.1"))  # Weight for context bonuses
+# ChatGPT-based state detection config
+CHATGPT_STATE_DETECTION_ENABLED = os.getenv("CHATGPT_STATE_DETECTION_ENABLED", "true").lower() == "true"
+CHATGPT_CONFIDENCE_THRESHOLD = float(os.getenv("CHATGPT_CONFIDENCE_THRESHOLD", "0.7"))  # Confidence threshold for ChatGPT analysis
+CHATGPT_TEMPERATURE = float(os.getenv("CHATGPT_TEMPERATURE", "0.1"))  # Low temperature for consistent state detection
 ENABLE_FALLBACK_ANALYSIS = os.getenv("ENABLE_FALLBACK_ANALYSIS", "true").lower() == "true"  # Enable fallback analysis
 CONSERVATIVE_DEFAULT = os.getenv("CONSERVATIVE_DEFAULT", "true").lower() == "true"  # Use conservative defaults
-ENABLE_FEEDBACK_LEARNING = os.getenv("ENABLE_FEEDBACK_LEARNING", "false").lower() == "true"  # Enable learning from feedback
-LEARNING_RATE = float(os.getenv("LEARNING_RATE", "0.1"))  # Learning rate for feedback system
 
 # Wake word constants
 WAKE_WORD_SOLSTIS = "SOLSTIS"
@@ -157,111 +152,6 @@ current_lit_items = []  # Track multiple currently lit items for LED preservatio
 # Reed switch state variables
 box_is_open = False
 reed_switch_initialized = False
-
-# User feedback learning system
-class FeedbackLearningSystem:
-    """Learn from user corrections to improve accuracy"""
-    
-    def __init__(self):
-        self.correction_history = []
-        self.pattern_weights = {}
-        self.learning_enabled = os.getenv("ENABLE_FEEDBACK_LEARNING", "false").lower() == "true"
-        self.learning_rate = float(os.getenv("LEARNING_RATE", "0.1"))
-        
-    def record_correction(self, predicted_outcome, actual_outcome, response_text):
-        """Record when user corrects the system"""
-        if not self.learning_enabled:
-            return
-            
-        correction = {
-            'predicted': predicted_outcome,
-            'actual': actual_outcome,
-            'text': response_text,
-            'timestamp': time.time()
-        }
-        
-        self.correction_history.append(correction)
-        log(f"📚 Learning: Recorded correction - Predicted: {predicted_outcome}, Actual: {actual_outcome}")
-        
-        # Keep only recent corrections (last 100)
-        if len(self.correction_history) > 100:
-            self.correction_history = self.correction_history[-100:]
-        
-        # Update pattern weights
-        self.update_pattern_weights(response_text, actual_outcome)
-    
-    def update_pattern_weights(self, response_text, correct_outcome):
-        """Update pattern weights based on corrections"""
-        response_lower = response_text.lower()
-        
-        # Extract key phrases and update their weights
-        key_phrases = self.extract_key_phrases(response_text)
-        
-        for phrase in key_phrases:
-            if phrase not in self.pattern_weights:
-                self.pattern_weights[phrase] = {}
-            
-            if correct_outcome not in self.pattern_weights[phrase]:
-                self.pattern_weights[phrase][correct_outcome] = 0.0
-            
-            # Increase weight for correct outcome
-            self.pattern_weights[phrase][correct_outcome] += self.learning_rate
-            
-            # Decrease weight for incorrect outcomes
-            for outcome in [ResponseOutcome.NEED_MORE_INFO, ResponseOutcome.USER_ACTION_REQUIRED, 
-                          ResponseOutcome.PROCEDURE_DONE, ResponseOutcome.EMERGENCY_SITUATION]:
-                if outcome != correct_outcome and outcome in self.pattern_weights[phrase]:
-                    self.pattern_weights[phrase][outcome] = max(0.0, 
-                        self.pattern_weights[phrase][outcome] - self.learning_rate * 0.5)
-    
-    def extract_key_phrases(self, text):
-        """Extract key phrases from text for learning"""
-        # Simple phrase extraction - could be enhanced with NLP
-        words = text.lower().split()
-        phrases = []
-        
-        # Extract 2-3 word phrases
-        for i in range(len(words) - 1):
-            phrases.append(f"{words[i]} {words[i+1]}")
-        for i in range(len(words) - 2):
-            phrases.append(f"{words[i]} {words[i+1]} {words[i+2]}")
-        
-        return phrases
-    
-    def get_adjusted_confidence(self, response_text, base_confidence, predicted_outcome):
-        """Adjust confidence based on historical corrections"""
-        if not self.learning_enabled or not self.pattern_weights:
-            return base_confidence
-        
-        response_lower = response_text.lower()
-        adjustment = 0.0
-        
-        # Check for learned patterns
-        for phrase, weights in self.pattern_weights.items():
-            if phrase in response_lower and predicted_outcome in weights:
-                adjustment += weights[predicted_outcome] * 0.1  # Small adjustment per phrase
-        
-        # Apply adjustment (clamp between 0.0 and 1.0)
-        adjusted_confidence = max(0.0, min(1.0, base_confidence + adjustment))
-        
-        if abs(adjustment) > 0.05:  # Only log significant adjustments
-            log(f"📚 Learning: Adjusted confidence from {base_confidence:.3f} to {adjusted_confidence:.3f} (Δ{adjustment:+.3f})")
-        
-        return adjusted_confidence
-    
-    def get_learning_stats(self):
-        """Get learning system statistics"""
-        if not self.correction_history:
-            return "No corrections recorded yet"
-        
-        total_corrections = len(self.correction_history)
-        recent_corrections = len([c for c in self.correction_history 
-                                if time.time() - c['timestamp'] < 3600])  # Last hour
-        
-        return f"Total corrections: {total_corrections}, Recent (1h): {recent_corrections}, Patterns learned: {len(self.pattern_weights)}"
-
-# Initialize feedback learning system
-feedback_learning = FeedbackLearningSystem()
 
 # ---------- Enhanced Keyword Detection System ----------
 # Comprehensive keyword mapping for medical kit items
@@ -682,6 +572,187 @@ def parse_response_for_items(response_text):
         log(f"Lighting LEDs for all detected items: {', '.join(item_names)}")
         light_multiple_item_leds(item_names)
 
+# ---------- ChatGPT-Based State Detection System ----------
+def analyze_conversation_state_with_chatgpt(response_text, conversation_history):
+    """
+    Use ChatGPT to analyze the conversation and determine the current state.
+    Returns the detected outcome and confidence score.
+    """
+    try:
+        import openai
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        
+        # Prepare conversation context
+        conversation_context = ""
+        if conversation_history and len(conversation_history) > 0:
+            # Include recent conversation history for context
+            recent_messages = conversation_history[-6:] if len(conversation_history) >= 6 else conversation_history
+            for msg in recent_messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    conversation_context += f"User: {content}\n"
+                elif role == "assistant":
+                    conversation_context += f"Assistant: {content}\n"
+        
+        # Create the state detection prompt
+        state_detection_prompt = f"""You are analyzing a medical assistant conversation to determine the current state. Based on the assistant's response, determine which outcome category it belongs to.
+
+CONVERSATION CONTEXT:
+{conversation_context}
+
+ASSISTANT'S RESPONSE TO ANALYZE:
+"{response_text}"
+
+OUTCOME CATEGORIES:
+1. NEED_MORE_INFO: The assistant is asking for more information, clarification, or details about the user's situation
+2. USER_ACTION_REQUIRED: The assistant is giving instructions for the user to perform an action (apply bandage, use item, etc.) and expects the user to complete it
+3. PROCEDURE_DONE: The assistant is indicating that the treatment/procedure is complete and the user should be fine
+4. EMERGENCY_SITUATION: The assistant is recommending emergency care, calling 911, or indicating a critical situation
+
+ANALYSIS INSTRUCTIONS:
+- Analyze the assistant's response carefully
+- Consider the conversation context if provided
+- Look for key phrases that indicate the outcome
+- Be conservative - if unsure, default to NEED_MORE_INFO
+- Respond with ONLY the outcome category name and a confidence score (0.0-1.0)
+
+RESPONSE FORMAT:
+OUTCOME: [category_name]
+CONFIDENCE: [score]"""
+
+        # Make the API call
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert at analyzing medical assistant conversations to determine conversation states. Be precise and conservative in your analysis."},
+                {"role": "user", "content": state_detection_prompt}
+            ],
+            max_tokens=100,
+            temperature=CHATGPT_TEMPERATURE
+        )
+        
+        analysis = response.choices[0].message.content.strip()
+        log(f"🤖 ChatGPT State Analysis: {analysis}")
+        
+        # Parse the response
+        outcome = None
+        confidence = 0.0
+        
+        lines = analysis.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line.startswith("OUTCOME:"):
+                outcome_str = line.replace("OUTCOME:", "").strip()
+                if outcome_str in [ResponseOutcome.NEED_MORE_INFO, ResponseOutcome.USER_ACTION_REQUIRED, 
+                                 ResponseOutcome.PROCEDURE_DONE, ResponseOutcome.EMERGENCY_SITUATION]:
+                    outcome = outcome_str
+            elif line.startswith("CONFIDENCE:"):
+                try:
+                    confidence = float(line.replace("CONFIDENCE:", "").strip())
+                except ValueError:
+                    confidence = 0.0
+        
+        # Validate the result
+        if outcome is None:
+            log("⚠️  ChatGPT analysis failed to identify valid outcome, using fallback")
+            return ResponseOutcome.NEED_MORE_INFO, 0.0
+        
+        if confidence < 0.0 or confidence > 1.0:
+            confidence = max(0.0, min(1.0, confidence))
+        
+        log(f"🎯 ChatGPT Detection: {outcome} (confidence: {confidence:.3f})")
+        
+        return outcome, confidence
+        
+    except Exception as e:
+        log(f"Error in ChatGPT state analysis: {e}")
+        return ResponseOutcome.NEED_MORE_INFO, 0.0
+
+def enhanced_keyword_analysis_fallback(response_text, conversation_history):
+    """Enhanced keyword analysis as fallback when ChatGPT analysis fails"""
+    response_lower = response_text.lower()
+    
+    # Weighted keyword analysis
+    user_action_keywords = {
+        "let me know when": 0.9, "when you're done": 0.9, "when you're ready": 0.8,
+        "say step complete": 0.95, "tell me when": 0.8, "apply": 0.7, "use": 0.6,
+        "place": 0.6, "put on": 0.7, "secure": 0.6, "wrap": 0.6, "cover": 0.6,
+        "from your kit": 0.8, "from the highlighted": 0.8, "please apply": 0.8,
+        "please use": 0.7, "please place": 0.7, "now apply": 0.8, "now use": 0.7
+    }
+    
+    procedure_done_keywords = {
+        "procedure is complete": 0.95, "treatment is done": 0.9, "you're all set": 0.8,
+        "that should help": 0.7, "you should be fine": 0.8, "take care": 0.6,
+        "you're good": 0.7, "all done": 0.8, "procedure complete": 0.9,
+        "treatment complete": 0.9, "finished": 0.7, "completed": 0.8,
+        "you should be okay": 0.8, "you'll be fine": 0.8, "everything looks good": 0.8,
+        "keep an eye on": 0.6, "monitor": 0.6, "watch for": 0.6,
+        "healthcare professional": 0.7, "see a doctor": 0.7, "medical attention": 0.7
+    }
+    
+    need_more_info_keywords = {
+        "where exactly": 0.9, "how big": 0.8, "how much": 0.8, "how long": 0.8,
+        "what does": 0.8, "can you tell me": 0.8, "is it": 0.6, "are you": 0.6,
+        "do you": 0.6, "what kind": 0.8, "which": 0.7, "how severe": 0.8,
+        "describe": 0.8, "explain": 0.8, "tell me more": 0.8, "i need to know": 0.8,
+        "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8
+    }
+    
+    emergency_keywords = {
+        "emergency room": 0.9, "call 9-1-1": 0.95, "immediate medical attention": 0.9,
+        "seek immediate": 0.8, "go to the nearest": 0.8, "call for medical help": 0.9,
+        "emergency care": 0.9, "urgent medical": 0.8, "critical situation": 0.9
+    }
+    
+    # Calculate weighted scores
+    def calculate_score(keywords_dict):
+        total_score = 0.0
+        matches = 0
+        for keyword, weight in keywords_dict.items():
+            if keyword in response_lower:
+                total_score += weight
+                matches += 1
+        return total_score, matches
+    
+    user_action_score, ua_matches = calculate_score(user_action_keywords)
+    procedure_done_score, pd_matches = calculate_score(procedure_done_keywords)
+    need_more_info_score, nmi_matches = calculate_score(need_more_info_keywords)
+    emergency_score, em_matches = calculate_score(emergency_keywords)
+    
+    # Apply conversation context bonuses
+    if conversation_history and len(conversation_history) > 0:
+        recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
+        recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
+        
+        # Context bonus for continuation patterns
+        if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe"]):
+            need_more_info_score += 0.2
+        if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
+            user_action_score += 0.2
+    
+    scores = {
+        ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
+        ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
+        ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
+        ResponseOutcome.EMERGENCY_SITUATION: emergency_score
+    }
+    
+    best_outcome = max(scores, key=scores.get)
+    best_score = scores[best_outcome]
+    
+    log(f"🔍 Fallback Keyword Analysis:")
+    log(f"   User Action: {user_action_score:.3f} ({ua_matches} matches)")
+    log(f"   Procedure Done: {procedure_done_score:.3f} ({pd_matches} matches)")
+    log(f"   Need More Info: {need_more_info_score:.3f} ({nmi_matches} matches)")
+    log(f"   Emergency: {emergency_score:.3f} ({em_matches} matches)")
+    log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
+    
+    return best_outcome, best_score
+
 # ---------- Reed Switch Control System ----------
 def init_reed_switch():
     """Initialize the reed switch GPIO"""
@@ -818,213 +889,14 @@ def handle_user_feedback(user_text, conversation_history):
 
 def process_response(user_text, conversation_history=None):
     """
-    Process user response and determine the outcome using enhanced semantic analysis.
+    Process user response and determine the outcome using ChatGPT-based analysis.
     Returns one of: NEED_MORE_INFO, USER_ACTION_REQUIRED, PROCEDURE_DONE, EMERGENCY_SITUATION
     """
     try:
         import openai
-        import numpy as np
-        from sklearn.metrics.pairwise import cosine_similarity
         
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        # Enhanced semantic analysis for better outcome detection
-        def get_semantic_similarity(text, reference_phrases):
-            """Calculate semantic similarity between text and reference phrases using OpenAI embeddings"""
-            try:
-                # Get embedding for the input text
-                response = client.embeddings.create(
-                    model="text-embedding-3-small",
-                    input=text
-                )
-                text_embedding = np.array(response.data[0].embedding)
-                
-                # Get embeddings for reference phrases
-                reference_embeddings = []
-                for phrase in reference_phrases:
-                    ref_response = client.embeddings.create(
-                        model="text-embedding-3-small",
-                        input=phrase
-                    )
-                    reference_embeddings.append(np.array(ref_response.data[0].embedding))
-                
-                # Calculate cosine similarities
-                similarities = cosine_similarity([text_embedding], reference_embeddings)[0]
-                return max(similarities) if len(similarities) > 0 else 0.0
-                
-            except Exception as e:
-                log(f"Error in semantic similarity calculation: {e}")
-                return 0.0
-        
-        def analyze_response_with_confidence(response_text, conversation_history):
-            """Analyze response with confidence scoring and context awareness"""
-            response_lower = response_text.lower()
-            
-            # Define semantic reference phrases for each outcome type
-            user_action_phrases = [
-                "please apply the bandage and let me know when you're done",
-                "use the gauze pad and tell me when finished",
-                "place the dressing and say step complete when ready",
-                "apply the ointment and let me know when complete",
-                "wrap the bandage and notify me when done"
-            ]
-            
-            procedure_done_phrases = [
-                "the procedure is now complete and you should be fine",
-                "treatment is finished and you're all set",
-                "everything looks good and you're done",
-                "the procedure is complete and you should be okay",
-                "treatment finished and you'll be fine"
-            ]
-            
-            need_more_info_phrases = [
-                "I need more information to help you properly",
-                "can you tell me more about the injury",
-                "I need additional details to assess the situation",
-                "please describe the problem in more detail",
-                "I need to understand better before helping"
-            ]
-            
-            emergency_phrases = [
-                "this is an emergency and you need immediate medical attention",
-                "call 911 immediately for this critical situation",
-                "this requires urgent medical care right now",
-                "go to the emergency room immediately",
-                "seek immediate medical attention for this"
-            ]
-            
-            # Calculate semantic similarities
-            user_action_score = get_semantic_similarity(response_text, user_action_phrases)
-            procedure_done_score = get_semantic_similarity(response_text, procedure_done_phrases)
-            need_more_info_score = get_semantic_similarity(response_text, need_more_info_phrases)
-            emergency_score = get_semantic_similarity(response_text, emergency_phrases)
-            
-            # Context awareness - analyze conversation history
-            context_bonus = 0.0
-            if conversation_history and len(conversation_history) > 0:
-                # If previous exchanges were asking for info, boost need_more_info
-                recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
-                recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
-                
-                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe", "tell me"]):
-                    context_bonus = 0.1
-                    need_more_info_score += context_bonus
-                
-                # If previous exchanges were giving instructions, boost user_action
-                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
-                    context_bonus = 0.1
-                    user_action_score += context_bonus
-            
-            # Use configurable confidence threshold for semantic analysis
-            threshold = SEMANTIC_THRESHOLD
-            
-            # Determine outcome based on highest scoring category
-            scores = {
-                ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
-                ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
-                ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
-                ResponseOutcome.EMERGENCY_SITUATION: emergency_score
-            }
-            
-            best_outcome = max(scores, key=scores.get)
-            best_score = scores[best_outcome]
-            
-            log(f"🎯 Semantic Analysis Scores:")
-            log(f"   User Action: {user_action_score:.3f}")
-            log(f"   Procedure Done: {procedure_done_score:.3f}")
-            log(f"   Need More Info: {need_more_info_score:.3f}")
-            log(f"   Emergency: {emergency_score:.3f}")
-            log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
-            
-            # If semantic analysis is confident, use it
-            if best_score >= threshold:
-                return best_outcome, best_score
-            
-            # Fall back to enhanced keyword analysis with confidence scoring
-            return enhanced_keyword_analysis(response_text, conversation_history)
-        
-        def enhanced_keyword_analysis(response_text, conversation_history):
-            """Enhanced keyword analysis with confidence scoring"""
-            response_lower = response_text.lower()
-            
-            # Weighted keyword analysis
-            user_action_keywords = {
-                "let me know when": 0.9, "when you're done": 0.9, "when you're ready": 0.8,
-                "say step complete": 0.95, "tell me when": 0.8, "apply": 0.7, "use": 0.6,
-                "place": 0.6, "put on": 0.7, "secure": 0.6, "wrap": 0.6, "cover": 0.6,
-                "from your kit": 0.8, "from the highlighted": 0.8, "please apply": 0.8,
-                "please use": 0.7, "please place": 0.7, "now apply": 0.8, "now use": 0.7
-            }
-            
-            procedure_done_keywords = {
-                "procedure is complete": 0.95, "treatment is done": 0.9, "you're all set": 0.8,
-                "that should help": 0.7, "you should be fine": 0.8, "take care": 0.6,
-                "you're good": 0.7, "all done": 0.8, "procedure complete": 0.9,
-                "treatment complete": 0.9, "finished": 0.7, "completed": 0.8,
-                "you should be okay": 0.8, "you'll be fine": 0.8, "everything looks good": 0.8,
-                "keep an eye on": 0.6, "monitor": 0.6, "watch for": 0.6,
-                "healthcare professional": 0.7, "see a doctor": 0.7, "medical attention": 0.7
-            }
-            
-            need_more_info_keywords = {
-                "where exactly": 0.9, "how big": 0.8, "how much": 0.8, "how long": 0.8,
-                "what does": 0.8, "can you tell me": 0.8, "is it": 0.6, "are you": 0.6,
-                "do you": 0.6, "what kind": 0.8, "which": 0.7, "how severe": 0.8,
-                "describe": 0.8, "explain": 0.8, "tell me more": 0.8, "i need to know": 0.8,
-                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8
-            }
-            
-            emergency_keywords = {
-                "emergency room": 0.9, "call 9-1-1": 0.95, "immediate medical attention": 0.9,
-                "seek immediate": 0.8, "go to the nearest": 0.8, "call for medical help": 0.9,
-                "emergency care": 0.9, "urgent medical": 0.8, "critical situation": 0.9
-            }
-            
-            # Calculate weighted scores
-            def calculate_score(keywords_dict):
-                total_score = 0.0
-                matches = 0
-                for keyword, weight in keywords_dict.items():
-                    if keyword in response_lower:
-                        total_score += weight
-                        matches += 1
-                return total_score, matches
-            
-            user_action_score, ua_matches = calculate_score(user_action_keywords)
-            procedure_done_score, pd_matches = calculate_score(procedure_done_keywords)
-            need_more_info_score, nmi_matches = calculate_score(need_more_info_keywords)
-            emergency_score, em_matches = calculate_score(emergency_keywords)
-            
-            # Apply conversation context bonuses
-            if conversation_history and len(conversation_history) > 0:
-                recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
-                recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
-                
-                # Context bonus for continuation patterns
-                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe"]):
-                    need_more_info_score += 0.2
-                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
-                    user_action_score += 0.2
-            
-            scores = {
-                ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
-                ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
-                ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
-                ResponseOutcome.EMERGENCY_SITUATION: emergency_score
-            }
-            
-            best_outcome = max(scores, key=scores.get)
-            best_score = scores[best_outcome]
-            
-            log(f"🔍 Enhanced Keyword Analysis:")
-            log(f"   User Action: {user_action_score:.3f} ({ua_matches} matches)")
-            log(f"   Procedure Done: {procedure_done_score:.3f} ({pd_matches} matches)")
-            log(f"   Need More Info: {need_more_info_score:.3f} ({nmi_matches} matches)")
-            log(f"   Emergency: {emergency_score:.3f} ({em_matches} matches)")
-            log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
-            
-            return best_outcome, best_score
         
         # Prepare messages
         messages = [
@@ -1056,19 +928,25 @@ def process_response(user_text, conversation_history=None):
         if len(conversation_history) > 20:
             conversation_history = conversation_history[-20:]
         
-        # Use enhanced analysis with confidence scoring
-        outcome, confidence = analyze_response_with_confidence(response_text, conversation_history)
-        
-        # Apply feedback learning adjustments
-        adjusted_confidence = feedback_learning.get_adjusted_confidence(response_text, confidence, outcome)
+        # Use ChatGPT-based state detection
+        if CHATGPT_STATE_DETECTION_ENABLED:
+            outcome, confidence = analyze_conversation_state_with_chatgpt(response_text, conversation_history)
+            
+            # If ChatGPT analysis is confident, use it
+            if confidence >= CHATGPT_CONFIDENCE_THRESHOLD:
+                log(f"✅ Using ChatGPT analysis: {outcome} (confidence: {confidence:.3f})")
+            else:
+                # Fall back to keyword analysis
+                log(f"⚠️  ChatGPT confidence too low ({confidence:.3f}), using fallback analysis")
+                outcome, confidence = enhanced_keyword_analysis_fallback(response_text, conversation_history)
+        else:
+            # Use fallback analysis if ChatGPT is disabled
+            log("🔍 ChatGPT state detection disabled, using fallback analysis")
+            outcome, confidence = enhanced_keyword_analysis_fallback(response_text, conversation_history)
         
         # Log confidence level for debugging
-        if adjusted_confidence < 0.5:
-            log(f"⚠️  Low confidence detection ({adjusted_confidence:.3f}) - using fallback")
-        
-        # Log learning stats periodically
-        if len(conversation_history) % 10 == 0:  # Every 10 exchanges
-            log(f"📚 Learning Stats: {feedback_learning.get_learning_stats()}")
+        if confidence < 0.5:
+            log(f"⚠️  Low confidence detection ({confidence:.3f}) - using fallback")
         
         return outcome, response_text
     
@@ -1779,14 +1657,6 @@ def handle_conversation():
         if feedback_outcome is not None:
             log("📚 Processing user feedback")
             say(feedback_response)
-            # Record the correction for learning
-            if len(conversation_history) >= 2:
-                last_assistant_response = conversation_history[-1].get("content", "")
-                feedback_learning.record_correction(
-                    ResponseOutcome.NEED_MORE_INFO,  # Previous detection was likely wrong
-                    feedback_outcome,  # Correct outcome based on user feedback
-                    last_assistant_response
-                )
             continue
         
         # Check for negative response
@@ -2102,6 +1972,7 @@ async def main():
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")
     log(f"Reed Switch: {'Enabled' if REED_SWITCH_ENABLED else 'Disabled'}, Pin: {REED_SWITCH_PIN}, Debounce: {REED_SWITCH_DEBOUNCE_MS}ms")
+    log(f"ChatGPT State Detection: {'Enabled' if CHATGPT_STATE_DETECTION_ENABLED else 'Disabled'}, Confidence Threshold: {CHATGPT_CONFIDENCE_THRESHOLD}")
     
     try:
         # Start the conversation flow
