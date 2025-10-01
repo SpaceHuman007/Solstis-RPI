@@ -848,7 +848,9 @@ def process_response(user_text, conversation_history=None):
                 "treatment complete": 0.9, "finished": 0.7, "completed": 0.8,
                 "you should be okay": 0.8, "you'll be fine": 0.8, "everything looks good": 0.8,
                 "keep an eye on": 0.6, "monitor": 0.6, "watch for": 0.6,
-                "healthcare professional": 0.7, "see a doctor": 0.7, "medical attention": 0.7
+                "healthcare professional": 0.7, "see a doctor": 0.7, "medical attention": 0.7,
+                "excellent": 0.5, "well done": 0.5, "great job": 0.5,
+                "is there anything else": 0.4, "anything else i can help": 0.4
             }
             
             need_more_info_keywords = {
@@ -1814,31 +1816,83 @@ def handle_conversation():
                 continue  # Re-process with new emergency-related input
             
             elif outcome == ResponseOutcome.PROCEDURE_DONE:
-                # Procedure is complete
-                log("✅ Procedure completed")
-                say(closing_message())
-                current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                # Procedure appears complete - ask for user confirmation
+                log("✅ Procedure appears complete - asking for user confirmation")
+                say("Are you all set with the treatment, or is there anything else you need help with?")
+                current_state = ConversationState.ACTIVE_ASSISTANCE  # Stay in active assistance for confirmation
                 
-                # Wait for wake word to restart
-                wake_word = wait_for_wake_word()
-                if wake_word == "SOLSTIS":
-                    say(prompt_continue_help())
-                    # Set flag to skip opening message on next iteration
-                    skip_opening_message = True
-                    audio_data = listen_for_speech(timeout=T_NORMAL)
+                # Listen for user confirmation
+                audio_data = listen_for_speech(timeout=T_NORMAL)
+                
+                if audio_data is None:
+                    log("🔇 No response to confirmation, prompting and waiting for wake word")
+                    say("I'm here if you need any additional help. Say 'SOLSTIS' if you need me.")
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
-                    if audio_data is None:
-                        log("🔇 No response after procedure completion")
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        # Set flag to skip opening message on next iteration
+                        skip_opening_message = True
+                        break  # Exit active assistance loop
+                    else:
+                        break
+                
+                user_text = transcribe_audio_elevenlabs(audio_data)
+                if not user_text:
+                    log("❌ No transcription received")
+                    continue
+                
+                print(f"User: {user_text}")
+                
+                # Check if user confirms they're done or needs more help
+                user_lower = user_text.lower()
+                
+                # Check for confirmation that they're done
+                if any(phrase in user_lower for phrase in [
+                    "yes", "i'm good", "i'm done", "all set", "finished", "that's it", 
+                    "no more", "nothing else", "i'm fine", "good to go", "all good"
+                ]):
+                    log("✅ User confirmed they're done")
+                    say(closing_message())
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                    
+                    # Wait for wake word to restart
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        # Set flag to skip opening message on next iteration
+                        skip_opening_message = True
+                        audio_data = listen_for_speech(timeout=T_NORMAL)
+                        
+                        if audio_data is None:
+                            log("🔇 No response after procedure completion")
+                            continue
+                        
+                        user_text = transcribe_audio_elevenlabs(audio_data)
+                        if not user_text:
+                            log("❌ No transcription received")
+                            continue
+                        
+                        print(f"User: {user_text}")
+                        break  # Back to main loop for new request
+                    else:
                         continue
-                    
-                    user_text = transcribe_audio_elevenlabs(audio_data)
-                    if not user_text:
-                        log("❌ No transcription received")
-                        continue
-                    
-                    print(f"User: {user_text}")
-                    break  # Back to main loop for new request
+                
+                # Check if user needs more help
+                elif any(phrase in user_lower for phrase in [
+                    "no", "not yet", "i need", "help me", "more help", "something else",
+                    "another", "different", "also", "additionally", "further"
+                ]):
+                    log("🔄 User needs more help - continuing conversation")
+                    say("What else can I help you with? Please describe what you need.")
+                    # Continue in active assistance mode to handle the new request
+                    continue
+                
+                # If unclear response, ask for clarification
                 else:
+                    log("❓ Unclear response - asking for clarification")
+                    say("I want to make sure I understand. Are you satisfied with the treatment, or do you need help with something else?")
                     continue
 
 def cleanup_audio_processes(fast: bool = False):
