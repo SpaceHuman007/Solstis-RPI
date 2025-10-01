@@ -71,7 +71,7 @@ SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS thresho
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.8"))
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.5"))  # minimum speech duration
+MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "1.5"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
 
 # Noise adaptation settings
@@ -758,7 +758,7 @@ def process_response(user_text, conversation_history=None):
         if any(phrase in response_lower for phrase in [
             "procedure is complete", "treatment is done", "you're all set", 
             "that should help", "you should be fine", "call 9-1-1", "emergency room", 
-            "well done", "take care", "you're good", "all done",
+            "take care", "you're good", "all done",
             "procedure complete", "treatment complete", "finished", "completed",
             "you should be okay", "you'll be fine", "everything looks good",
             "keep an eye on", "monitor", "watch for", "signs of infection",
@@ -1530,6 +1530,26 @@ def handle_conversation():
         # Enter active assistance loop
         current_state = ConversationState.ACTIVE_ASSISTANCE
         log("🩺 Entering active assistance mode")
+        
+        # Check if this is a positive response to the opening question
+        if any(phrase in user_text.lower() for phrase in ["yes", "yeah", "yep", "sure", "ok", "okay", "i do", "i need help"]):
+            log("✅ Positive response detected - asking for details")
+            say("What happened? Please tell me what's wrong so I can help you.")
+            
+            # Listen for the actual problem description
+            audio_data = listen_for_speech(timeout=T_NORMAL)
+            if audio_data is None:
+                log("🔇 No response to problem description request")
+                continue
+            
+            # Transcribe the problem description
+            problem_text = transcribe_audio_elevenlabs(audio_data)
+            if not problem_text:
+                log("❌ No transcription received for problem description")
+                continue
+            
+            print(f"User: {problem_text}")
+            user_text = problem_text  # Use the problem description instead of "Yes"
         
         while True:
             # Check if box is still open during conversation
