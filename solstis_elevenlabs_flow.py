@@ -71,7 +71,7 @@ SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS thresho
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.8"))
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "1.5"))  # minimum speech duration
+MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
 
 # Noise adaptation settings
@@ -1318,10 +1318,9 @@ def listen_for_speech(timeout=T_NORMAL):
                             break
                 else:
                     # Haven't detected speech yet, keep waiting
-                    if current_time - start_time >= MIN_SPEECH_DURATION:
-                        # Been waiting too long without speech, give up
-                        log("No speech detected within minimum duration, stopping")
-                        break
+                    # Only give up if we've been waiting a very long time (use timeout instead of MIN_SPEECH_DURATION)
+                    # The timeout check above will handle this case
+                    pass
             
             # Safety check: don't capture too long (only after speech has been detected)
             if speech_detected and speech_start_time and current_time - speech_start_time >= MAX_SPEECH_DURATION:
