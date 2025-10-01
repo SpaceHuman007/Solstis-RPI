@@ -67,7 +67,7 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS threshold for speech detection
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # Higher threshold to ignore AC noise
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))
@@ -75,7 +75,7 @@ MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum 
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # maximum speech duration
 
 # Noise adaptation settings
-NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "true").lower() == "true"
+NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "false").lower() == "true"
 NOISE_SAMPLES_COUNT = int(os.getenv("NOISE_SAMPLES_COUNT", "20"))  # Number of samples to measure noise floor
 NOISE_MULTIPLIER = float(os.getenv("NOISE_MULTIPLIER", "2.5"))  # Speech threshold = noise_floor * multiplier
 MIN_SPEECH_THRESHOLD = int(os.getenv("MIN_SPEECH_THRESHOLD", "200"))  # Minimum threshold regardless of noise
