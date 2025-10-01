@@ -72,7 +72,7 @@ SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of sil
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "0.8"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
-MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "10.0"))  # maximum speech duration
+MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "true").lower() == "true"
@@ -113,6 +113,18 @@ REED_SWITCH_DEBOUNCE_MS = int(os.getenv("REED_SWITCH_DEBOUNCE_MS", "500"))  # De
 REED_SWITCH_CONFIRM_COUNT = int(os.getenv("REED_SWITCH_CONFIRM_COUNT", "5"))  # Number of consistent readings required
 REED_SWITCH_POLL_INTERVAL = float(os.getenv("REED_SWITCH_POLL_INTERVAL", "0.2"))  # Polling interval in seconds
 
+# Enhanced procedure state detection config
+SEMANTIC_THRESHOLD = float(os.getenv("SEMANTIC_THRESHOLD", "0.7"))  # Confidence threshold for semantic analysis
+SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL", "text-embedding-3-small")  # OpenAI embedding model
+MIN_CONFIDENCE_THRESHOLD = float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.5"))  # Minimum confidence threshold
+MAX_CONFIDENCE_THRESHOLD = float(os.getenv("MAX_CONFIDENCE_THRESHOLD", "0.95"))  # Maximum confidence threshold
+CONTEXT_WINDOW_SIZE = int(os.getenv("CONTEXT_WINDOW_SIZE", "4"))  # Number of recent messages to analyze for context
+CONTEXT_BONUS_WEIGHT = float(os.getenv("CONTEXT_BONUS_WEIGHT", "0.1"))  # Weight for context bonuses
+ENABLE_FALLBACK_ANALYSIS = os.getenv("ENABLE_FALLBACK_ANALYSIS", "true").lower() == "true"  # Enable fallback analysis
+CONSERVATIVE_DEFAULT = os.getenv("CONSERVATIVE_DEFAULT", "true").lower() == "true"  # Use conservative defaults
+ENABLE_FEEDBACK_LEARNING = os.getenv("ENABLE_FEEDBACK_LEARNING", "false").lower() == "true"  # Enable learning from feedback
+LEARNING_RATE = float(os.getenv("LEARNING_RATE", "0.1"))  # Learning rate for feedback system
+
 # Wake word constants
 WAKE_WORD_SOLSTIS = "SOLSTIS"
 WAKE_WORD_STEP_COMPLETE = "STEP COMPLETE"
@@ -145,6 +157,111 @@ current_lit_items = []  # Track multiple currently lit items for LED preservatio
 # Reed switch state variables
 box_is_open = False
 reed_switch_initialized = False
+
+# User feedback learning system
+class FeedbackLearningSystem:
+    """Learn from user corrections to improve accuracy"""
+    
+    def __init__(self):
+        self.correction_history = []
+        self.pattern_weights = {}
+        self.learning_enabled = os.getenv("ENABLE_FEEDBACK_LEARNING", "false").lower() == "true"
+        self.learning_rate = float(os.getenv("LEARNING_RATE", "0.1"))
+        
+    def record_correction(self, predicted_outcome, actual_outcome, response_text):
+        """Record when user corrects the system"""
+        if not self.learning_enabled:
+            return
+            
+        correction = {
+            'predicted': predicted_outcome,
+            'actual': actual_outcome,
+            'text': response_text,
+            'timestamp': time.time()
+        }
+        
+        self.correction_history.append(correction)
+        log(f"📚 Learning: Recorded correction - Predicted: {predicted_outcome}, Actual: {actual_outcome}")
+        
+        # Keep only recent corrections (last 100)
+        if len(self.correction_history) > 100:
+            self.correction_history = self.correction_history[-100:]
+        
+        # Update pattern weights
+        self.update_pattern_weights(response_text, actual_outcome)
+    
+    def update_pattern_weights(self, response_text, correct_outcome):
+        """Update pattern weights based on corrections"""
+        response_lower = response_text.lower()
+        
+        # Extract key phrases and update their weights
+        key_phrases = self.extract_key_phrases(response_text)
+        
+        for phrase in key_phrases:
+            if phrase not in self.pattern_weights:
+                self.pattern_weights[phrase] = {}
+            
+            if correct_outcome not in self.pattern_weights[phrase]:
+                self.pattern_weights[phrase][correct_outcome] = 0.0
+            
+            # Increase weight for correct outcome
+            self.pattern_weights[phrase][correct_outcome] += self.learning_rate
+            
+            # Decrease weight for incorrect outcomes
+            for outcome in [ResponseOutcome.NEED_MORE_INFO, ResponseOutcome.USER_ACTION_REQUIRED, 
+                          ResponseOutcome.PROCEDURE_DONE, ResponseOutcome.EMERGENCY_SITUATION]:
+                if outcome != correct_outcome and outcome in self.pattern_weights[phrase]:
+                    self.pattern_weights[phrase][outcome] = max(0.0, 
+                        self.pattern_weights[phrase][outcome] - self.learning_rate * 0.5)
+    
+    def extract_key_phrases(self, text):
+        """Extract key phrases from text for learning"""
+        # Simple phrase extraction - could be enhanced with NLP
+        words = text.lower().split()
+        phrases = []
+        
+        # Extract 2-3 word phrases
+        for i in range(len(words) - 1):
+            phrases.append(f"{words[i]} {words[i+1]}")
+        for i in range(len(words) - 2):
+            phrases.append(f"{words[i]} {words[i+1]} {words[i+2]}")
+        
+        return phrases
+    
+    def get_adjusted_confidence(self, response_text, base_confidence, predicted_outcome):
+        """Adjust confidence based on historical corrections"""
+        if not self.learning_enabled or not self.pattern_weights:
+            return base_confidence
+        
+        response_lower = response_text.lower()
+        adjustment = 0.0
+        
+        # Check for learned patterns
+        for phrase, weights in self.pattern_weights.items():
+            if phrase in response_lower and predicted_outcome in weights:
+                adjustment += weights[predicted_outcome] * 0.1  # Small adjustment per phrase
+        
+        # Apply adjustment (clamp between 0.0 and 1.0)
+        adjusted_confidence = max(0.0, min(1.0, base_confidence + adjustment))
+        
+        if abs(adjustment) > 0.05:  # Only log significant adjustments
+            log(f"📚 Learning: Adjusted confidence from {base_confidence:.3f} to {adjusted_confidence:.3f} (Δ{adjustment:+.3f})")
+        
+        return adjusted_confidence
+    
+    def get_learning_stats(self):
+        """Get learning system statistics"""
+        if not self.correction_history:
+            return "No corrections recorded yet"
+        
+        total_corrections = len(self.correction_history)
+        recent_corrections = len([c for c in self.correction_history 
+                                if time.time() - c['timestamp'] < 3600])  # Last hour
+        
+        return f"Total corrections: {total_corrections}, Recent (1h): {recent_corrections}, Patterns learned: {len(self.pattern_weights)}"
+
+# Initialize feedback learning system
+feedback_learning = FeedbackLearningSystem()
 
 # ---------- Enhanced Keyword Detection System ----------
 # Comprehensive keyword mapping for medical kit items
@@ -675,16 +792,239 @@ def prompt_continue_help():
     message = f"Hey {USER_NAME}, how can I help you?"
     return message
 
+def handle_user_feedback(user_text, conversation_history):
+    """Handle user feedback about incorrect procedure state detection"""
+    feedback_indicators = [
+        "that's wrong", "incorrect", "not right", "mistake", "error",
+        "i didn't mean", "that's not what", "you misunderstood",
+        "i was asking", "i was saying", "you got it wrong"
+    ]
+    
+    user_lower = user_text.lower()
+    if any(indicator in user_lower for indicator in feedback_indicators):
+        log("📚 User feedback detected - system may have made incorrect detection")
+        
+        # Try to extract the correct interpretation
+        if "i was asking" in user_lower or "i was saying" in user_lower:
+            # User is clarifying their intent
+            log("📚 User clarifying intent - this suggests NEED_MORE_INFO was correct")
+            return ResponseOutcome.NEED_MORE_INFO, "I understand, thank you for clarifying. Let me help you with that."
+        elif "you misunderstood" in user_lower or "not what i meant" in user_lower:
+            # User is correcting a misunderstanding
+            log("📚 User correcting misunderstanding - adjusting approach")
+            return ResponseOutcome.NEED_MORE_INFO, "I apologize for the confusion. Could you help me understand what you need?"
+    
+    return None, None
+
 def process_response(user_text, conversation_history=None):
     """
-    Process user response and determine the outcome.
-    Returns one of: NEED_MORE_INFO, USER_ACTION_REQUIRED, PROCEDURE_DONE
+    Process user response and determine the outcome using enhanced semantic analysis.
+    Returns one of: NEED_MORE_INFO, USER_ACTION_REQUIRED, PROCEDURE_DONE, EMERGENCY_SITUATION
     """
     try:
         import openai
+        import numpy as np
+        from sklearn.metrics.pairwise import cosine_similarity
         
         # Initialize OpenAI client
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        
+        # Enhanced semantic analysis for better outcome detection
+        def get_semantic_similarity(text, reference_phrases):
+            """Calculate semantic similarity between text and reference phrases using OpenAI embeddings"""
+            try:
+                # Get embedding for the input text
+                response = client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=text
+                )
+                text_embedding = np.array(response.data[0].embedding)
+                
+                # Get embeddings for reference phrases
+                reference_embeddings = []
+                for phrase in reference_phrases:
+                    ref_response = client.embeddings.create(
+                        model="text-embedding-3-small",
+                        input=phrase
+                    )
+                    reference_embeddings.append(np.array(ref_response.data[0].embedding))
+                
+                # Calculate cosine similarities
+                similarities = cosine_similarity([text_embedding], reference_embeddings)[0]
+                return max(similarities) if len(similarities) > 0 else 0.0
+                
+            except Exception as e:
+                log(f"Error in semantic similarity calculation: {e}")
+                return 0.0
+        
+        def analyze_response_with_confidence(response_text, conversation_history):
+            """Analyze response with confidence scoring and context awareness"""
+            response_lower = response_text.lower()
+            
+            # Define semantic reference phrases for each outcome type
+            user_action_phrases = [
+                "please apply the bandage and let me know when you're done",
+                "use the gauze pad and tell me when finished",
+                "place the dressing and say step complete when ready",
+                "apply the ointment and let me know when complete",
+                "wrap the bandage and notify me when done"
+            ]
+            
+            procedure_done_phrases = [
+                "the procedure is now complete and you should be fine",
+                "treatment is finished and you're all set",
+                "everything looks good and you're done",
+                "the procedure is complete and you should be okay",
+                "treatment finished and you'll be fine"
+            ]
+            
+            need_more_info_phrases = [
+                "I need more information to help you properly",
+                "can you tell me more about the injury",
+                "I need additional details to assess the situation",
+                "please describe the problem in more detail",
+                "I need to understand better before helping"
+            ]
+            
+            emergency_phrases = [
+                "this is an emergency and you need immediate medical attention",
+                "call 911 immediately for this critical situation",
+                "this requires urgent medical care right now",
+                "go to the emergency room immediately",
+                "seek immediate medical attention for this"
+            ]
+            
+            # Calculate semantic similarities
+            user_action_score = get_semantic_similarity(response_text, user_action_phrases)
+            procedure_done_score = get_semantic_similarity(response_text, procedure_done_phrases)
+            need_more_info_score = get_semantic_similarity(response_text, need_more_info_phrases)
+            emergency_score = get_semantic_similarity(response_text, emergency_phrases)
+            
+            # Context awareness - analyze conversation history
+            context_bonus = 0.0
+            if conversation_history and len(conversation_history) > 0:
+                # If previous exchanges were asking for info, boost need_more_info
+                recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
+                recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
+                
+                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe", "tell me"]):
+                    context_bonus = 0.1
+                    need_more_info_score += context_bonus
+                
+                # If previous exchanges were giving instructions, boost user_action
+                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
+                    context_bonus = 0.1
+                    user_action_score += context_bonus
+            
+            # Use configurable confidence threshold for semantic analysis
+            threshold = SEMANTIC_THRESHOLD
+            
+            # Determine outcome based on highest scoring category
+            scores = {
+                ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
+                ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
+                ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
+                ResponseOutcome.EMERGENCY_SITUATION: emergency_score
+            }
+            
+            best_outcome = max(scores, key=scores.get)
+            best_score = scores[best_outcome]
+            
+            log(f"🎯 Semantic Analysis Scores:")
+            log(f"   User Action: {user_action_score:.3f}")
+            log(f"   Procedure Done: {procedure_done_score:.3f}")
+            log(f"   Need More Info: {need_more_info_score:.3f}")
+            log(f"   Emergency: {emergency_score:.3f}")
+            log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
+            
+            # If semantic analysis is confident, use it
+            if best_score >= threshold:
+                return best_outcome, best_score
+            
+            # Fall back to enhanced keyword analysis with confidence scoring
+            return enhanced_keyword_analysis(response_text, conversation_history)
+        
+        def enhanced_keyword_analysis(response_text, conversation_history):
+            """Enhanced keyword analysis with confidence scoring"""
+            response_lower = response_text.lower()
+            
+            # Weighted keyword analysis
+            user_action_keywords = {
+                "let me know when": 0.9, "when you're done": 0.9, "when you're ready": 0.8,
+                "say step complete": 0.95, "tell me when": 0.8, "apply": 0.7, "use": 0.6,
+                "place": 0.6, "put on": 0.7, "secure": 0.6, "wrap": 0.6, "cover": 0.6,
+                "from your kit": 0.8, "from the highlighted": 0.8, "please apply": 0.8,
+                "please use": 0.7, "please place": 0.7, "now apply": 0.8, "now use": 0.7
+            }
+            
+            procedure_done_keywords = {
+                "procedure is complete": 0.95, "treatment is done": 0.9, "you're all set": 0.8,
+                "that should help": 0.7, "you should be fine": 0.8, "take care": 0.6,
+                "you're good": 0.7, "all done": 0.8, "procedure complete": 0.9,
+                "treatment complete": 0.9, "finished": 0.7, "completed": 0.8,
+                "you should be okay": 0.8, "you'll be fine": 0.8, "everything looks good": 0.8,
+                "keep an eye on": 0.6, "monitor": 0.6, "watch for": 0.6,
+                "healthcare professional": 0.7, "see a doctor": 0.7, "medical attention": 0.7
+            }
+            
+            need_more_info_keywords = {
+                "where exactly": 0.9, "how big": 0.8, "how much": 0.8, "how long": 0.8,
+                "what does": 0.8, "can you tell me": 0.8, "is it": 0.6, "are you": 0.6,
+                "do you": 0.6, "what kind": 0.8, "which": 0.7, "how severe": 0.8,
+                "describe": 0.8, "explain": 0.8, "tell me more": 0.8, "i need to know": 0.8,
+                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8
+            }
+            
+            emergency_keywords = {
+                "emergency room": 0.9, "call 9-1-1": 0.95, "immediate medical attention": 0.9,
+                "seek immediate": 0.8, "go to the nearest": 0.8, "call for medical help": 0.9,
+                "emergency care": 0.9, "urgent medical": 0.8, "critical situation": 0.9
+            }
+            
+            # Calculate weighted scores
+            def calculate_score(keywords_dict):
+                total_score = 0.0
+                matches = 0
+                for keyword, weight in keywords_dict.items():
+                    if keyword in response_lower:
+                        total_score += weight
+                        matches += 1
+                return total_score, matches
+            
+            user_action_score, ua_matches = calculate_score(user_action_keywords)
+            procedure_done_score, pd_matches = calculate_score(procedure_done_keywords)
+            need_more_info_score, nmi_matches = calculate_score(need_more_info_keywords)
+            emergency_score, em_matches = calculate_score(emergency_keywords)
+            
+            # Apply conversation context bonuses
+            if conversation_history and len(conversation_history) > 0:
+                recent_messages = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
+                recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
+                
+                # Context bonus for continuation patterns
+                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe"]):
+                    need_more_info_score += 0.2
+                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
+                    user_action_score += 0.2
+            
+            scores = {
+                ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
+                ResponseOutcome.PROCEDURE_DONE: procedure_done_score,
+                ResponseOutcome.NEED_MORE_INFO: need_more_info_score,
+                ResponseOutcome.EMERGENCY_SITUATION: emergency_score
+            }
+            
+            best_outcome = max(scores, key=scores.get)
+            best_score = scores[best_outcome]
+            
+            log(f"🔍 Enhanced Keyword Analysis:")
+            log(f"   User Action: {user_action_score:.3f} ({ua_matches} matches)")
+            log(f"   Procedure Done: {procedure_done_score:.3f} ({pd_matches} matches)")
+            log(f"   Need More Info: {need_more_info_score:.3f} ({nmi_matches} matches)")
+            log(f"   Emergency: {emergency_score:.3f} ({em_matches} matches)")
+            log(f"   Best: {best_outcome} (confidence: {best_score:.3f})")
+            
+            return best_outcome, best_score
         
         # Prepare messages
         messages = [
@@ -716,98 +1056,21 @@ def process_response(user_text, conversation_history=None):
         if len(conversation_history) > 20:
             conversation_history = conversation_history[-20:]
         
-        # Determine outcome based on response content
-        response_lower = response_text.lower()
+        # Use enhanced analysis with confidence scoring
+        outcome, confidence = analyze_response_with_confidence(response_text, conversation_history)
         
-        # Check for user action required indicators FIRST (highest priority)
-        # Only detect as user action if it's asking for immediate medical action
-        if any(phrase in response_lower for phrase in [
-            "let me know when", "when you're done", "when you're ready", 
-            "say step complete", "tell me when", "let me know when you've",
-            "apply", "use", "place", "put on", "secure", "wrap", "cover",
-            "from your kit", "from the highlighted",
-            "please apply", "please use", "please place", "please put",
-            "now apply", "now use", "now place", "now put"
-        ]):
-            return ResponseOutcome.USER_ACTION_REQUIRED, response_text
+        # Apply feedback learning adjustments
+        adjusted_confidence = feedback_learning.get_adjusted_confidence(response_text, confidence, outcome)
         
-        # Check for AI asking for additional input/feedback (should continue listening)
-        if any(phrase in response_lower for phrase in [
-            "is there anything else", "anything else i can help", "anything else you need",
-            "do you need help with", "would you like help with", "can i help with",
-            "any other questions", "any other concerns", "anything else regarding",
-            "what else can i help", "how else can i help", "anything more",
-            "any other issues", "any other problems", "any other injuries"
-        ]):
-            return ResponseOutcome.NEED_MORE_INFO, response_text
+        # Log confidence level for debugging
+        if adjusted_confidence < 0.5:
+            log(f"⚠️  Low confidence detection ({adjusted_confidence:.3f}) - using fallback")
         
-        # Check for emergency situations
-        emergency_indicators = [
-            "emergency room", "call 9-1-1", "immediate medical attention", 
-            "seek immediate", "go to the nearest", "call for medical help",
-            "emergency care", "urgent medical", "critical situation"
-        ]
+        # Log learning stats periodically
+        if len(conversation_history) % 10 == 0:  # Every 10 exchanges
+            log(f"📚 Learning Stats: {feedback_learning.get_learning_stats()}")
         
-        is_emergency = any(phrase in response_lower for phrase in emergency_indicators)
-        
-        # Handle emergency situations - continue conversation to provide support
-        if is_emergency:
-            return ResponseOutcome.EMERGENCY_SITUATION, response_text
-        
-        # Check for procedure completion indicators (only if not user action, asking for input, or emergency)
-        if any(phrase in response_lower for phrase in [
-            "procedure is complete", "treatment is done", "you're all set", 
-            "that should help", "you should be fine", "call 9-1-1", "emergency room", 
-            "take care", "you're good", "all done",
-            "procedure complete", "treatment complete", "finished", "completed",
-            "you should be okay", "you'll be fine", "everything looks good",
-            "keep an eye on", "monitor", "watch for", "signs of infection",
-            "healthcare professional", "see a doctor", "medical attention",
-            "further assistance", "feel free to ask", "need further help",
-            "let me know if there are any changes", "let me know if you have any questions",
-            "let me know if you notice", "let me know if it", "let me know if the"
-        ]):
-            return ResponseOutcome.PROCEDURE_DONE, response_text
-        
-        # Check for clarification-seeking indicators
-        if any(phrase in response_lower for phrase in [
-            "where exactly", "how big", "how much", "how long", "what does", "can you tell me",
-            "is it", "are you", "do you", "what kind", "which", "how severe", "how bad",
-            "describe", "explain", "tell me more", "i need to know", "before i can help",
-            "to better understand", "to assess", "to determine", "to evaluate"
-        ]):
-            return ResponseOutcome.NEED_MORE_INFO, response_text
-        
-        # Intelligent fallback detection based on response characteristics
-        # Check for completion-like characteristics
-        completion_indicators = [
-            "good", "great", "excellent", "perfect", "nice", "well",
-            "should be", "will be", "looks good", "appears", "seems",
-            "monitor", "watch", "keep", "maintain", "continue",
-            "daily", "regularly", "as needed", "if needed", "when needed"
-        ]
-        
-        # Check for action-like characteristics  
-        action_indicators = [
-            "next", "then", "after", "once", "when", "while",
-            "gently", "carefully", "slowly", "firmly", "lightly",
-            "remove", "clean", "wash", "rinse", "dry", "pat"
-        ]
-        
-        # Count indicators to determine most likely outcome
-        completion_count = sum(1 for phrase in completion_indicators if phrase in response_lower)
-        action_count = sum(1 for phrase in action_indicators if phrase in response_lower)
-        
-        # If response has more completion characteristics, likely procedure done
-        if completion_count > action_count and completion_count > 0:
-            return ResponseOutcome.PROCEDURE_DONE, response_text
-        
-        # If response has more action characteristics, likely need more info (for clarification)
-        if action_count > completion_count and action_count > 0:
-            return ResponseOutcome.NEED_MORE_INFO, response_text
-        
-        # Default to needing more info (conservative approach)
-        return ResponseOutcome.NEED_MORE_INFO, response_text
+        return outcome, response_text
     
     except Exception as e:
         log(f"Error processing response: {e}")
@@ -1510,6 +1773,21 @@ def handle_conversation():
             continue
         
         print(f"User: {user_text}")
+        
+        # Check for user feedback about incorrect detection
+        feedback_outcome, feedback_response = handle_user_feedback(user_text, conversation_history)
+        if feedback_outcome is not None:
+            log("📚 Processing user feedback")
+            say(feedback_response)
+            # Record the correction for learning
+            if len(conversation_history) >= 2:
+                last_assistant_response = conversation_history[-1].get("content", "")
+                feedback_learning.record_correction(
+                    ResponseOutcome.NEED_MORE_INFO,  # Previous detection was likely wrong
+                    feedback_outcome,  # Correct outcome based on user feedback
+                    last_assistant_response
+                )
+            continue
         
         # Check for negative response
         if any(phrase in user_text.lower() for phrase in ["no", "nothing", "i'm fine", "no thanks"]):

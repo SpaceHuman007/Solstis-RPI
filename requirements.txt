@@ -19,6 +19,10 @@ RPi.GPIO>=0.7.1
 # LED strip control for WS281x/NeoPixel LEDs
 rpi_ws281x>=4.3.0
 
+# Enhanced semantic analysis dependencies
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
 # Audio processing (optional - we use ALSA directly)
 # pyaudio>=0.2.11
 
