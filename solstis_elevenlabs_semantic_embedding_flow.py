@@ -70,9 +70,9 @@ USER_NAME = os.getenv("USER_NAME", "User")
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "500"))  # Base RMS threshold for speech detection
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.0"))
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
-MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # maximum speech duration
+MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # maximum speech duration
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "true").lower() == "true"
@@ -83,8 +83,8 @@ MAX_SPEECH_THRESHOLD = int(os.getenv("MAX_SPEECH_THRESHOLD", "2000"))  # Maximum
 
 # Timeout configurations
 T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
-T_NORMAL = float(os.getenv("T_NORMAL", "10.0"))  # Normal timeout for conversation
-T_LONG = float(os.getenv("T_LONG", "15.0"))  # Long timeout for step completion
+T_NORMAL = float(os.getenv("T_NORMAL", "30.0"))  # Normal timeout for conversation
+T_LONG = float(os.getenv("T_LONG", "30.0"))  # Long timeout for step completion
 
 # LED Control config
 LED_ENABLED = os.getenv("LED_ENABLED", "true").lower() == "true" and LED_CONTROL_AVAILABLE
