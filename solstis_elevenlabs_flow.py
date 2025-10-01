@@ -1530,26 +1530,6 @@ def handle_conversation():
         current_state = ConversationState.ACTIVE_ASSISTANCE
         log("🩺 Entering active assistance mode")
         
-        # Check if this is a positive response to the opening question
-        if any(phrase in user_text.lower() for phrase in ["yes", "yeah", "yep", "sure", "ok", "okay", "i do", "i need help"]):
-            log("✅ Positive response detected - asking for details")
-            say("What happened? Please tell me what's wrong so I can help you.")
-            
-            # Listen for the actual problem description
-            audio_data = listen_for_speech(timeout=T_NORMAL)
-            if audio_data is None:
-                log("🔇 No response to problem description request")
-                continue
-            
-            # Transcribe the problem description
-            problem_text = transcribe_audio_elevenlabs(audio_data)
-            if not problem_text:
-                log("❌ No transcription received for problem description")
-                continue
-            
-            print(f"User: {problem_text}")
-            user_text = problem_text  # Use the problem description instead of "Yes"
-        
         while True:
             # Check if box is still open during conversation
             state_changed, is_open = check_box_state_change()
