@@ -79,7 +79,7 @@ MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy -
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
 # WebRTC VAD configuration
-VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "2"))  # 0=least aggressive, 3=most aggressive
+VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "3"))  # 0=least aggressive, 3=most aggressive (increased for better detection)
 VAD_FRAME_DURATION_MS = int(os.getenv("VAD_FRAME_DURATION_MS", "30"))  # Frame duration in ms (10, 20, or 30)
 VAD_SAMPLE_RATE = 16000  # WebRTC VAD requires 16kHz
 
@@ -1268,12 +1268,12 @@ def is_speech_detected_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
             if rms > SPEECH_THRESHOLD:
                 speech_frames += 1
     
-    # Consider speech if more than 30% of frames contain speech
+    # Consider speech if more than 20% of frames contain speech (more sensitive)
     if total_frames == 0:
         return False
     
     speech_ratio = speech_frames / total_frames
-    return speech_ratio > 0.3
+    return speech_ratio > 0.2
 
 def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
     """Analyze audio to determine if user has finished speaking using WebRTC VAD"""
@@ -1331,8 +1331,8 @@ def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
     # User is done speaking if:
     # 1. Overall speech was detected (user was speaking)
     # 2. Recent frames show no speech (user stopped)
-    # 3. Recent speech ratio is below 20%
-    is_done_speaking = (overall_speech_ratio > 0.3 and recent_speech_ratio < 0.2)
+    # 3. Recent speech ratio is below 30% (more lenient)
+    is_done_speaking = (overall_speech_ratio > 0.2 and recent_speech_ratio < 0.3)
     
     return is_done_speaking, overall_speech_ratio
 
@@ -1566,12 +1566,15 @@ def listen_for_speech(timeout=T_NORMAL):
                 if speech_detected:
                     # We were detecting speech, now check if user is done speaking
                     # Use WebRTC VAD to analyze if user has finished speaking
-                    if len(audio_buffer) > frame_bytes * 10:  # Need enough audio for analysis
+                    if len(audio_buffer) > frame_bytes * 5:  # Reduced buffer requirement for faster analysis
                         try:
                             is_done, speech_ratio = analyze_speech_completion_webrtc(audio_buffer)
                             if is_done:
                                 log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
                                 break
+                            else:
+                                # Log current state for debugging
+                                log(f"WebRTC VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
                         except Exception as e:
                             log(f"WebRTC VAD error: {e}, continuing with timeout fallback")
                             # Only use timeout as absolute fallback
