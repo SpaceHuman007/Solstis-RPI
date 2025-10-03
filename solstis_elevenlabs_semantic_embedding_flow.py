@@ -7,7 +7,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 import requests
 import pvporcupine  # pip install pvporcupine
-import webrtcvad  # pip install webrtcvad
+from pyannote.audio import Pipeline
+import tempfile
+import wave
 
 # GPIO imports for reed switch
 try:
@@ -71,17 +73,16 @@ elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
-# Speech detection config - WebRTC VAD primary, RMS fallback
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with WebRTC VAD)
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with WebRTC VAD
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with WebRTC VAD
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with WebRTC VAD
+# Speech detection config - Pyannote VAD primary, RMS fallback
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with Pyannote VAD)
+SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with Pyannote VAD
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with Pyannote VAD
+MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with Pyannote VAD
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
-# WebRTC VAD configuration
-VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "1"))  # 0=least aggressive, 3=most aggressive (reduced to avoid false positives)
-VAD_FRAME_DURATION_MS = int(os.getenv("VAD_FRAME_DURATION_MS", "30"))  # Frame duration in ms (10, 20, or 30)
-VAD_SAMPLE_RATE = 16000  # WebRTC VAD requires 16kHz
+# Pyannote VAD configuration
+PYANNOTE_VAD_TOKEN = os.getenv("PYANNOTE_VAD_TOKEN", "")  # Hugging Face token for pyannote VAD
+VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "1.0"))  # Seconds of silence to consider speech complete
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "false").lower() == "true"
@@ -1216,8 +1217,20 @@ def text_to_speech_elevenlabs(text):
         return b""
 
 # ---------- Voice Activity Detection ----------
-# Initialize WebRTC VAD
-vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+# Initialize Pyannote VAD
+try:
+    if PYANNOTE_VAD_TOKEN:
+        vad_pipeline = Pipeline.from_pretrained("pyannote/voice-activity-detection", use_auth_token=PYANNOTE_VAD_TOKEN)
+        VAD_AVAILABLE = True
+        log("Pyannote VAD initialized successfully")
+    else:
+        log("Pyannote VAD token not provided, falling back to RMS-based detection")
+        VAD_AVAILABLE = False
+        vad_pipeline = None
+except Exception as e:
+    log(f"Failed to initialize Pyannote VAD: {e}")
+    VAD_AVAILABLE = False
+    vad_pipeline = None
 
 def calculate_rms(audio_data):
     """Calculate RMS (Root Mean Square) of audio data for voice activity detection (legacy)"""
@@ -1232,125 +1245,111 @@ def calculate_rms(audio_data):
     rms = math.sqrt(sum_squares / len(samples))
     return rms
 
-def is_speech_detected_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
-    """Determine if audio contains speech using WebRTC VAD"""
-    if len(audio_data) == 0:
+def is_speech_detected_pyannote(audio_data, sample_rate=16000):
+    """Determine if audio contains speech using Pyannote VAD"""
+    if not VAD_AVAILABLE or len(audio_data) == 0:
         return False
     
-    # Ensure audio is 16-bit PCM
-    if len(audio_data) % 2 != 0:
-        return False
-    
-    # Calculate frame size for the specified duration
-    frame_size = int(sample_rate * VAD_FRAME_DURATION_MS / 1000)
-    frame_bytes = frame_size * 2  # 16-bit = 2 bytes per sample
-    
-    # Process audio in frames
-    speech_frames = 0
-    total_frames = 0
-    
-    for i in range(0, len(audio_data), frame_bytes):
-        frame = audio_data[i:i + frame_bytes]
-        
-        # Skip if frame is too short
-        if len(frame) < frame_bytes:
-            break
+    try:
+        # Create temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            # Write WAV header and audio data
+            with wave.open(temp_file.name, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data)
             
-        total_frames += 1
-        
+            # Run VAD on the audio file
+            output = vad_pipeline(temp_file.name)
+            
+            # Check if there's any speech detected
+            timeline = output.get_timeline().support()
+            return len(timeline) > 0
+            
+    except Exception as e:
+        log(f"Pyannote VAD error: {e}")
+        # Fallback to RMS
+        rms = calculate_rms(audio_data)
+        return rms > SPEECH_THRESHOLD
+    finally:
+        # Clean up temporary file
         try:
-            # WebRTC VAD expects 16-bit PCM at 16kHz
-            if vad.is_speech(frame, sample_rate):
-                speech_frames += 1
-        except Exception as e:
-            # If VAD fails, fall back to RMS detection
-            rms = calculate_rms(frame)
-            if rms > SPEECH_THRESHOLD:
-                speech_frames += 1
-    
-    # Consider speech if more than 20% of frames contain speech (more sensitive)
-    if total_frames == 0:
-        return False
-    
-    speech_ratio = speech_frames / total_frames
-    return speech_ratio > 0.2
+            os.unlink(temp_file.name)
+        except:
+            pass
 
-def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
-    """Analyze audio to determine if user has finished speaking using WebRTC VAD"""
-    if len(audio_data) == 0:
+def analyze_speech_completion_pyannote(audio_data, sample_rate=16000):
+    """Analyze audio to determine if user has finished speaking using Pyannote VAD"""
+    if not VAD_AVAILABLE or len(audio_data) == 0:
         return False, 0.0
     
-    # Ensure audio is 16-bit PCM
-    if len(audio_data) % 2 != 0:
+    try:
+        # Create temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            # Write WAV header and audio data
+            with wave.open(temp_file.name, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data)
+            
+            # Run VAD on the audio file
+            output = vad_pipeline(temp_file.name)
+            
+            # Get speech timeline
+            timeline = output.get_timeline().support()
+            
+            if len(timeline) == 0:
+                # No speech detected at all
+                log("Pyannote VAD: No speech detected")
+                return False, 0.0
+            
+            # Get the duration of the audio
+            audio_duration = len(audio_data) / (sample_rate * 2)  # 2 bytes per sample
+            
+            # Find the last speech segment
+            last_speech_end = max(segment.end for segment in timeline)
+            
+            # Calculate silence duration since last speech
+            silence_duration = audio_duration - last_speech_end
+            
+            log(f"Pyannote VAD Analysis: audio_duration={audio_duration:.2f}s, last_speech_end={last_speech_end:.2f}s, silence_duration={silence_duration:.2f}s")
+            
+            # User is done speaking if silence duration exceeds threshold
+            is_done_speaking = silence_duration >= VAD_COMPLETION_THRESHOLD
+            
+            log(f"Pyannote VAD Decision: is_done={is_done_speaking} (silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
+            
+            # Return speech ratio (proportion of audio that contains speech)
+            total_speech_duration = sum(segment.duration for segment in timeline)
+            speech_ratio = total_speech_duration / audio_duration if audio_duration > 0 else 0.0
+            
+            return is_done_speaking, speech_ratio
+            
+    except Exception as e:
+        log(f"Pyannote VAD error: {e}")
+        # Fallback: assume not done speaking
         return False, 0.0
-    
-    # Calculate frame size for the specified duration
-    frame_size = int(sample_rate * VAD_FRAME_DURATION_MS / 1000)
-    frame_bytes = frame_size * 2  # 16-bit = 2 bytes per sample
-    
-    # Process audio in frames and track recent speech activity
-    speech_frames = 0
-    total_frames = 0
-    recent_speech_frames = 0
-    recent_frames = 0
-    
-    # Look at the last few frames to determine if speech is ending
-    frames = []
-    for i in range(0, len(audio_data), frame_bytes):
-        frame = audio_data[i:i + frame_bytes]
-        if len(frame) >= frame_bytes:
-            frames.append(frame)
-    
-    # Analyze all frames for overall speech ratio
-    for frame in frames:
-        total_frames += 1
+    finally:
+        # Clean up temporary file
         try:
-            if vad.is_speech(frame, sample_rate):
-                speech_frames += 1
-        except Exception:
-            rms = calculate_rms(frame)
-            if rms > SPEECH_THRESHOLD:
-                speech_frames += 1
-    
-    # Analyze last 20 frames (last ~600ms) for recent speech activity
-    recent_frames_to_check = min(20, len(frames))
-    for frame in frames[-recent_frames_to_check:]:
-        recent_frames += 1
-        try:
-            if vad.is_speech(frame, sample_rate):
-                recent_speech_frames += 1
-        except Exception:
-            rms = calculate_rms(frame)
-            if rms > SPEECH_THRESHOLD:
-                recent_speech_frames += 1
-    
-    # Calculate ratios
-    overall_speech_ratio = speech_frames / total_frames if total_frames > 0 else 0.0
-    recent_speech_ratio = recent_speech_frames / recent_frames if recent_frames > 0 else 0.0
-    
-    # Debug logging
-    log(f"WebRTC VAD Analysis: total_frames={total_frames}, speech_frames={speech_frames}, recent_frames={recent_frames}, recent_speech_frames={recent_speech_frames}")
-    log(f"WebRTC VAD Ratios: overall={overall_speech_ratio:.2f}, recent={recent_speech_ratio:.2f}")
-    
-    # User is done speaking if:
-    # 1. We have enough recent frames to analyze
-    # 2. Recent frames show low speech activity (user stopped talking)
-    # 3. Recent speech ratio is below 30% (user has stopped speaking)
-    is_done_speaking = (recent_frames >= 5 and recent_speech_ratio < 0.3)
-    
-    log(f"WebRTC VAD Decision: is_done={is_done_speaking} (recent_frames >= 5: {recent_frames >= 5}, recent < 0.3: {recent_speech_ratio < 0.3})")
-    
-    return is_done_speaking, overall_speech_ratio
+            os.unlink(temp_file.name)
+        except:
+            pass
 
 def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, adaptive_threshold=None):
-    """Determine if audio contains speech - uses WebRTC VAD by default, falls back to RMS"""
-    try:
-        return is_speech_detected_webrtc(audio_data)
-    except Exception as e:
-        # Fall back to RMS detection if WebRTC VAD fails
-        rms = calculate_rms(audio_data)
-        effective_threshold = adaptive_threshold if adaptive_threshold is not None else threshold
-        return rms > effective_threshold
+    """Determine if audio contains speech - uses Pyannote VAD by default, falls back to RMS"""
+    if VAD_AVAILABLE:
+        try:
+            return is_speech_detected_pyannote(audio_data)
+        except Exception as e:
+            log(f"Pyannote VAD failed: {e}, falling back to RMS")
+    
+    # Fallback to RMS-based detection
+    rms = calculate_rms(audio_data)
+    effective_threshold = adaptive_threshold if adaptive_threshold is not None else threshold
+    return rms > effective_threshold
 
 def measure_noise_floor(arec, frame_bytes, sample_count=NOISE_SAMPLES_COUNT):
     """Measure background noise floor to adapt speech detection threshold"""
@@ -1559,36 +1558,36 @@ def listen_for_speech(timeout=T_NORMAL):
             
             audio_buffer += chunk
             
-            # Check for speech in this frame using WebRTC VAD
+            # Check for speech in this frame using Pyannote VAD
             current_time = time.time()
             
             if is_speech_detected(chunk, SPEECH_THRESHOLD, adaptive_threshold):
                 if not speech_detected:
-                    log("WebRTC VAD: Speech detected, continuing capture...")
+                    log("Pyannote VAD: Speech detected, continuing capture...")
                     speech_detected = True
                     speech_start_time = current_time
                 else:
                     # Still detecting speech, log occasionally
                     if int(current_time) % 3 == 0:  # Log every 3 seconds
-                        log("WebRTC VAD: Still detecting speech...")
+                        log("Pyannote VAD: Still detecting speech...")
             else:
                 # No speech detected in this frame
                 if speech_detected:
-                    log("WebRTC VAD: No speech in current frame, checking completion...")
+                    log("Pyannote VAD: No speech in current frame, checking completion...")
             
             # Check for completion if we've been detecting speech for a while
             if speech_detected and len(audio_buffer) > frame_bytes * 5:
                 try:
-                    is_done, speech_ratio = analyze_speech_completion_webrtc(audio_buffer)
+                    is_done, speech_ratio = analyze_speech_completion_pyannote(audio_buffer)
                     if is_done:
-                        log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
+                        log(f"Pyannote VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
                         break
                     else:
                         # Log current state for debugging (less frequent to avoid spam)
                         if int(current_time) % 2 == 0:  # Log every 2 seconds
-                            log(f"WebRTC VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
+                            log(f"Pyannote VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
                 except Exception as e:
-                    log(f"WebRTC VAD error: {e}, continuing with timeout fallback")
+                    log(f"Pyannote VAD error: {e}, continuing with timeout fallback")
                     # Only use timeout as absolute fallback
                     if current_time - speech_start_time >= MAX_SPEECH_DURATION:
                         log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
@@ -2158,8 +2157,8 @@ async def main():
     log(f"ElevenLabs Model ID: {ELEVENLABS_MODEL_ID}")
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
-    log(f"Speech Detection - WebRTC VAD: Aggressiveness={VAD_AGGRESSIVENESS}, Frame={VAD_FRAME_DURATION_MS}ms")
-    log(f"Speech Detection - WebRTC VAD only, RMS fallback: {SPEECH_THRESHOLD}, Max duration: {MAX_SPEECH_DURATION}s")
+    log(f"Speech Detection - Pyannote VAD: Completion threshold={VAD_COMPLETION_THRESHOLD}s")
+    log(f"Speech Detection - RMS fallback: {SPEECH_THRESHOLD}, Max duration: {MAX_SPEECH_DURATION}s")
     log(f"Noise Adaptation - Enabled: {NOISE_ADAPTATION_ENABLED}, Multiplier: {NOISE_MULTIPLIER}x, Samples: {NOISE_SAMPLES_COUNT}")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")
