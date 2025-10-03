@@ -79,7 +79,7 @@ MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy -
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
 # WebRTC VAD configuration
-VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "3"))  # 0=least aggressive, 3=most aggressive (increased for better detection)
+VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "1"))  # 0=least aggressive, 3=most aggressive (reduced to avoid false positives)
 VAD_FRAME_DURATION_MS = int(os.getenv("VAD_FRAME_DURATION_MS", "30"))  # Frame duration in ms (10, 20, or 30)
 VAD_SAMPLE_RATE = 16000  # WebRTC VAD requires 16kHz
 
@@ -1312,8 +1312,8 @@ def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
             if rms > SPEECH_THRESHOLD:
                 speech_frames += 1
     
-    # Analyze last 10 frames (last ~300ms) for recent speech activity
-    recent_frames_to_check = min(10, len(frames))
+    # Analyze last 20 frames (last ~600ms) for recent speech activity
+    recent_frames_to_check = min(20, len(frames))
     for frame in frames[-recent_frames_to_check:]:
         recent_frames += 1
         try:
@@ -1333,12 +1333,12 @@ def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
     log(f"WebRTC VAD Ratios: overall={overall_speech_ratio:.2f}, recent={recent_speech_ratio:.2f}")
     
     # User is done speaking if:
-    # 1. Overall speech was detected (user was speaking)
-    # 2. Recent frames show no speech (user stopped)
-    # 3. Recent speech ratio is below 30% (more lenient)
-    is_done_speaking = (overall_speech_ratio > 0.2 and recent_speech_ratio < 0.3)
+    # 1. We have enough recent frames to analyze
+    # 2. Recent frames show low speech activity (user stopped talking)
+    # 3. Recent speech ratio is below 30% (user has stopped speaking)
+    is_done_speaking = (recent_frames >= 5 and recent_speech_ratio < 0.3)
     
-    log(f"WebRTC VAD Decision: is_done={is_done_speaking} (overall > 0.2: {overall_speech_ratio > 0.2}, recent < 0.3: {recent_speech_ratio < 0.3})")
+    log(f"WebRTC VAD Decision: is_done={is_done_speaking} (recent_frames >= 5: {recent_frames >= 5}, recent < 0.3: {recent_speech_ratio < 0.3})")
     
     return is_done_speaking, overall_speech_ratio
 
