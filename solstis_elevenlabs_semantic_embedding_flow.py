@@ -1328,11 +1328,17 @@ def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
     overall_speech_ratio = speech_frames / total_frames if total_frames > 0 else 0.0
     recent_speech_ratio = recent_speech_frames / recent_frames if recent_frames > 0 else 0.0
     
+    # Debug logging
+    log(f"WebRTC VAD Analysis: total_frames={total_frames}, speech_frames={speech_frames}, recent_frames={recent_frames}, recent_speech_frames={recent_speech_frames}")
+    log(f"WebRTC VAD Ratios: overall={overall_speech_ratio:.2f}, recent={recent_speech_ratio:.2f}")
+    
     # User is done speaking if:
     # 1. Overall speech was detected (user was speaking)
     # 2. Recent frames show no speech (user stopped)
     # 3. Recent speech ratio is below 30% (more lenient)
     is_done_speaking = (overall_speech_ratio > 0.2 and recent_speech_ratio < 0.3)
+    
+    log(f"WebRTC VAD Decision: is_done={is_done_speaking} (overall > 0.2: {overall_speech_ratio > 0.2}, recent < 0.3: {recent_speech_ratio < 0.3})")
     
     return is_done_speaking, overall_speech_ratio
 
@@ -1573,14 +1579,19 @@ def listen_for_speech(timeout=T_NORMAL):
                                 log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
                                 break
                             else:
-                                # Log current state for debugging
-                                log(f"WebRTC VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
+                                # Log current state for debugging (less frequent to avoid spam)
+                                if int(current_time) % 2 == 0:  # Log every 2 seconds
+                                    log(f"WebRTC VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
                         except Exception as e:
                             log(f"WebRTC VAD error: {e}, continuing with timeout fallback")
                             # Only use timeout as absolute fallback
                             if current_time - speech_start_time >= MAX_SPEECH_DURATION:
                                 log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
                                 break
+                    else:
+                        # Not enough audio buffer yet
+                        if int(current_time) % 2 == 0:  # Log every 2 seconds
+                            log(f"WebRTC VAD: Building audio buffer ({len(audio_buffer)} bytes)")
                 else:
                     # Haven't detected speech yet, keep waiting
                     # Use timeout to prevent infinite waiting
