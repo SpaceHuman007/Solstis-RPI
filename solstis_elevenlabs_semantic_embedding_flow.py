@@ -7,6 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import requests
 import pvporcupine  # pip install pvporcupine
+import webrtcvad  # pip install webrtcvad
 
 # GPIO imports for reed switch
 try:
@@ -71,12 +72,17 @@ OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # Higher threshold to ignore AC noise
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # Higher threshold to ignore AC noise (legacy, not used with WebRTC VAD)
 SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
 # When speech has been detected at least once, use a quicker silence cutoff
 QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))
 MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # maximum speech duration
+
+# WebRTC VAD configuration
+VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "2"))  # 0=least aggressive, 3=most aggressive
+VAD_FRAME_DURATION_MS = int(os.getenv("VAD_FRAME_DURATION_MS", "30"))  # Frame duration in ms (10, 20, or 30)
+VAD_SAMPLE_RATE = 16000  # WebRTC VAD requires 16kHz
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "false").lower() == "true"
@@ -1211,8 +1217,11 @@ def text_to_speech_elevenlabs(text):
         return b""
 
 # ---------- Voice Activity Detection ----------
+# Initialize WebRTC VAD
+vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+
 def calculate_rms(audio_data):
-    """Calculate RMS (Root Mean Square) of audio data for voice activity detection"""
+    """Calculate RMS (Root Mean Square) of audio data for voice activity detection (legacy)"""
     if len(audio_data) == 0:
         return 0
     
@@ -1224,12 +1233,119 @@ def calculate_rms(audio_data):
     rms = math.sqrt(sum_squares / len(samples))
     return rms
 
+def is_speech_detected_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
+    """Determine if audio contains speech using WebRTC VAD"""
+    if len(audio_data) == 0:
+        return False
+    
+    # Ensure audio is 16-bit PCM
+    if len(audio_data) % 2 != 0:
+        return False
+    
+    # Calculate frame size for the specified duration
+    frame_size = int(sample_rate * VAD_FRAME_DURATION_MS / 1000)
+    frame_bytes = frame_size * 2  # 16-bit = 2 bytes per sample
+    
+    # Process audio in frames
+    speech_frames = 0
+    total_frames = 0
+    
+    for i in range(0, len(audio_data), frame_bytes):
+        frame = audio_data[i:i + frame_bytes]
+        
+        # Skip if frame is too short
+        if len(frame) < frame_bytes:
+            break
+            
+        total_frames += 1
+        
+        try:
+            # WebRTC VAD expects 16-bit PCM at 16kHz
+            if vad.is_speech(frame, sample_rate):
+                speech_frames += 1
+        except Exception as e:
+            # If VAD fails, fall back to RMS detection
+            rms = calculate_rms(frame)
+            if rms > SPEECH_THRESHOLD:
+                speech_frames += 1
+    
+    # Consider speech if more than 30% of frames contain speech
+    if total_frames == 0:
+        return False
+    
+    speech_ratio = speech_frames / total_frames
+    return speech_ratio > 0.3
+
+def analyze_speech_completion_webrtc(audio_data, sample_rate=VAD_SAMPLE_RATE):
+    """Analyze audio to determine if user has finished speaking using WebRTC VAD"""
+    if len(audio_data) == 0:
+        return False, 0.0
+    
+    # Ensure audio is 16-bit PCM
+    if len(audio_data) % 2 != 0:
+        return False, 0.0
+    
+    # Calculate frame size for the specified duration
+    frame_size = int(sample_rate * VAD_FRAME_DURATION_MS / 1000)
+    frame_bytes = frame_size * 2  # 16-bit = 2 bytes per sample
+    
+    # Process audio in frames and track recent speech activity
+    speech_frames = 0
+    total_frames = 0
+    recent_speech_frames = 0
+    recent_frames = 0
+    
+    # Look at the last few frames to determine if speech is ending
+    frames = []
+    for i in range(0, len(audio_data), frame_bytes):
+        frame = audio_data[i:i + frame_bytes]
+        if len(frame) >= frame_bytes:
+            frames.append(frame)
+    
+    # Analyze all frames for overall speech ratio
+    for frame in frames:
+        total_frames += 1
+        try:
+            if vad.is_speech(frame, sample_rate):
+                speech_frames += 1
+        except Exception:
+            rms = calculate_rms(frame)
+            if rms > SPEECH_THRESHOLD:
+                speech_frames += 1
+    
+    # Analyze last 10 frames (last ~300ms) for recent speech activity
+    recent_frames_to_check = min(10, len(frames))
+    for frame in frames[-recent_frames_to_check:]:
+        recent_frames += 1
+        try:
+            if vad.is_speech(frame, sample_rate):
+                recent_speech_frames += 1
+        except Exception:
+            rms = calculate_rms(frame)
+            if rms > SPEECH_THRESHOLD:
+                recent_speech_frames += 1
+    
+    # Calculate ratios
+    overall_speech_ratio = speech_frames / total_frames if total_frames > 0 else 0.0
+    recent_speech_ratio = recent_speech_frames / recent_frames if recent_frames > 0 else 0.0
+    
+    # User is done speaking if:
+    # 1. Overall speech was detected (user was speaking)
+    # 2. Recent frames show no speech (user stopped)
+    # 3. Recent speech ratio is below 20%
+    is_done_speaking = (overall_speech_ratio > 0.3 and recent_speech_ratio < 0.2)
+    
+    return is_done_speaking, overall_speech_ratio
+
 def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, adaptive_threshold=None):
-    """Determine if audio contains speech based on RMS threshold"""
-    rms = calculate_rms(audio_data)
-    # Use adaptive threshold if provided, otherwise use static threshold
-    effective_threshold = adaptive_threshold if adaptive_threshold is not None else threshold
-    return rms > effective_threshold
+    """Determine if audio contains speech - uses WebRTC VAD by default, falls back to RMS"""
+    try:
+        return is_speech_detected_webrtc(audio_data)
+    except Exception as e:
+        # Fall back to RMS detection if WebRTC VAD fails
+        rms = calculate_rms(audio_data)
+        effective_threshold = adaptive_threshold if adaptive_threshold is not None else threshold
+        return rms > effective_threshold
 
 def measure_noise_floor(arec, frame_bytes, sample_count=NOISE_SAMPLES_COUNT):
     """Measure background noise floor to adapt speech detection threshold"""
@@ -1454,11 +1570,25 @@ def listen_for_speech(timeout=T_NORMAL):
                     if silence_start_time is None:
                         silence_start_time = current_time
                     else:
-                        # After any detected speech, use a quicker silence cutoff to end short replies
-                        cutoff = QUICK_SILENCE_AFTER_SPEECH
-                        if current_time - silence_start_time >= cutoff:
-                            log(f"Silence detected after speech for {cutoff}s, stopping capture")
-                            break
+                        # Use WebRTC VAD to analyze if user is done speaking
+                        if len(audio_buffer) > frame_bytes * 10:  # Need enough audio for analysis
+                            try:
+                                is_done, speech_ratio = analyze_speech_completion_webrtc(audio_buffer)
+                                if is_done:
+                                    log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
+                                    break
+                            except Exception as e:
+                                # Fall back to silence-based detection
+                                cutoff = QUICK_SILENCE_AFTER_SPEECH
+                                if current_time - silence_start_time >= cutoff:
+                                    log(f"Silence detected after speech for {cutoff}s, stopping capture")
+                                    break
+                        else:
+                            # Not enough audio yet, use silence-based detection
+                            cutoff = QUICK_SILENCE_AFTER_SPEECH
+                            if current_time - silence_start_time >= cutoff:
+                                log(f"Silence detected after speech for {cutoff}s, stopping capture")
+                                break
                 else:
                     # Haven't detected speech yet, keep waiting
                     # Only give up if we've been waiting a very long time (use timeout instead of MIN_SPEECH_DURATION)
@@ -2029,7 +2159,8 @@ async def main():
     log(f"ElevenLabs Model ID: {ELEVENLABS_MODEL_ID}")
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
-    log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD}, Silence Duration: {SILENCE_DURATION}s")
+    log(f"Speech Detection - WebRTC VAD: Aggressiveness={VAD_AGGRESSIVENESS}, Frame={VAD_FRAME_DURATION_MS}ms")
+    log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD} (RMS fallback), Silence Duration: {SILENCE_DURATION}s")
     log(f"Noise Adaptation - Enabled: {NOISE_ADAPTATION_ENABLED}, Multiplier: {NOISE_MULTIPLIER}x, Samples: {NOISE_SAMPLES_COUNT}")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")

@@ -23,6 +23,9 @@ rpi_ws281x>=4.3.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
 
+# WebRTC Voice Activity Detection for better speech detection
+webrtcvad>=2.0.10
+
 # Audio processing (optional - we use ALSA directly)
 # pyaudio>=0.2.11
 
