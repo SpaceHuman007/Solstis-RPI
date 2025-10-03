@@ -71,13 +71,12 @@ elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
-# Speech detection config
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # Higher threshold to ignore AC noise (legacy, not used with WebRTC VAD)
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # seconds of silence before stopping
-# When speech has been detected at least once, use a quicker silence cutoff
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # minimum speech duration
-MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # maximum speech duration
+# Speech detection config - WebRTC VAD primary, RMS fallback
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with WebRTC VAD)
+SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with WebRTC VAD
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with WebRTC VAD
+MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with WebRTC VAD
+MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
 # WebRTC VAD configuration
 VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "2"))  # 0=least aggressive, 3=most aggressive
@@ -1554,45 +1553,34 @@ def listen_for_speech(timeout=T_NORMAL):
             
             audio_buffer += chunk
             
-            # Check for speech in this frame
+            # Check for speech in this frame using WebRTC VAD
             current_time = time.time()
             
             if is_speech_detected(chunk, SPEECH_THRESHOLD, adaptive_threshold):
                 if not speech_detected:
-                    log("Speech detected, continuing capture...")
+                    log("WebRTC VAD: Speech detected, continuing capture...")
                     speech_detected = True
-                    speech_start_time = current_time  # Only start timing when speech is first detected
-                silence_start_time = None  # Reset silence timer
+                    speech_start_time = current_time
             else:
-                # No speech detected
+                # No speech detected in this frame
                 if speech_detected:
-                    # We were detecting speech, now we're in silence
-                    if silence_start_time is None:
-                        silence_start_time = current_time
-                    else:
-                        # Use WebRTC VAD to analyze if user is done speaking
-                        if len(audio_buffer) > frame_bytes * 10:  # Need enough audio for analysis
-                            try:
-                                is_done, speech_ratio = analyze_speech_completion_webrtc(audio_buffer)
-                                if is_done:
-                                    log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
-                                    break
-                            except Exception as e:
-                                # Fall back to silence-based detection
-                                cutoff = QUICK_SILENCE_AFTER_SPEECH
-                                if current_time - silence_start_time >= cutoff:
-                                    log(f"Silence detected after speech for {cutoff}s, stopping capture")
-                                    break
-                        else:
-                            # Not enough audio yet, use silence-based detection
-                            cutoff = QUICK_SILENCE_AFTER_SPEECH
-                            if current_time - silence_start_time >= cutoff:
-                                log(f"Silence detected after speech for {cutoff}s, stopping capture")
+                    # We were detecting speech, now check if user is done speaking
+                    # Use WebRTC VAD to analyze if user has finished speaking
+                    if len(audio_buffer) > frame_bytes * 10:  # Need enough audio for analysis
+                        try:
+                            is_done, speech_ratio = analyze_speech_completion_webrtc(audio_buffer)
+                            if is_done:
+                                log(f"WebRTC VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
+                                break
+                        except Exception as e:
+                            log(f"WebRTC VAD error: {e}, continuing with timeout fallback")
+                            # Only use timeout as absolute fallback
+                            if current_time - speech_start_time >= MAX_SPEECH_DURATION:
+                                log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
                                 break
                 else:
                     # Haven't detected speech yet, keep waiting
-                    # Only give up if we've been waiting a very long time (use timeout instead of MIN_SPEECH_DURATION)
-                    # The timeout check above will handle this case
+                    # Use timeout to prevent infinite waiting
                     pass
             
             # Safety check: don't capture too long (only after speech has been detected)
@@ -2160,7 +2148,7 @@ async def main():
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
     log(f"Speech Detection - WebRTC VAD: Aggressiveness={VAD_AGGRESSIVENESS}, Frame={VAD_FRAME_DURATION_MS}ms")
-    log(f"Speech Detection - Threshold: {SPEECH_THRESHOLD} (RMS fallback), Silence Duration: {SILENCE_DURATION}s")
+    log(f"Speech Detection - WebRTC VAD only, RMS fallback: {SPEECH_THRESHOLD}, Max duration: {MAX_SPEECH_DURATION}s")
     log(f"Noise Adaptation - Enabled: {NOISE_ADAPTATION_ENABLED}, Multiplier: {NOISE_MULTIPLIER}x, Samples: {NOISE_SAMPLES_COUNT}")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
     log(f"LED Control: {'Enabled' if LED_ENABLED else 'Disabled'}, Count: {LED_COUNT}")
