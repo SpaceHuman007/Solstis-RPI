@@ -92,7 +92,7 @@ T_LONG = float(os.getenv("T_LONG", "30.0"))  # Long timeout for step completion
 
 # LED Control config
 LED_ENABLED = os.getenv("LED_ENABLED", "true").lower() == "true" and LED_CONTROL_AVAILABLE
-LED_COUNT = int(os.getenv("LED_COUNT", "718"))  # Number of LED pixels
+LED_COUNT = int(os.getenv("LED_COUNT", "730"))  # Number of LED pixels
 LED_PIN = int(os.getenv("LED_PIN", "13"))  # GPIO pin connected to the pixels
 LED_FREQ_HZ = int(os.getenv("LED_FREQ_HZ", "800000"))  # LED signal frequency
 LED_DMA = int(os.getenv("LED_DMA", "10"))  # DMA channel
@@ -433,9 +433,9 @@ def detect_mentioned_items(response_text):
             log(f"   🔑 Matched keywords: {', '.join(matched_keywords)}")
     
     if not detected_items:
-        log("ℹ️  No medical kit items detected in response")
+        log(" No medical kit items detected in response")
     else:
-        log(f"📊 Total items detected: {len(detected_items)}")
+        log(f"Total items detected: {len(detected_items)}")
     
     return detected_items
 
