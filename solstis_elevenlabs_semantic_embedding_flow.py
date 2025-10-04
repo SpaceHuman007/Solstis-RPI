@@ -79,8 +79,8 @@ MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy -
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
 # Cobra VAD configuration
-COBRA_VAD_THRESHOLD = float(os.getenv("COBRA_VAD_THRESHOLD", "0.5"))  # Voice probability threshold (0.0-1.0)
-VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "0.8"))  # Seconds of silence to consider speech complete
+COBRA_VAD_THRESHOLD = float(os.getenv("COBRA_VAD_THRESHOLD", "0.3"))  # Voice probability threshold (0.0-1.0) - lowered for better detection
+VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "0.8"))  # Seconds of silence to consider speech complete - increased
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "false").lower() == "true"
@@ -1265,7 +1265,13 @@ def is_speech_detected_cobra(audio_data):
             return False
         
         speech_ratio = speech_frames / total_frames
-        return speech_ratio > 0.2
+        is_speech = speech_ratio > 0.2
+        
+        # Debug logging for speech detection
+        if is_speech:
+            log(f"Cobra VAD: Speech detected (ratio: {speech_ratio:.2f}, frames: {speech_frames}/{total_frames})")
+        
+        return is_speech
         
     except Exception as e:
         log(f"Cobra VAD error: {e}")
@@ -1329,10 +1335,13 @@ def analyze_speech_completion_cobra(audio_data):
         log(f"Cobra VAD Analysis: total_duration={total_duration:.2f}s, last_speech_time={last_speech_time:.2f}s, silence_duration={silence_duration:.2f}s")
         log(f"Cobra VAD Ratios: overall_speech_ratio={overall_speech_ratio:.2f}")
         
-        # User is done speaking if silence duration exceeds threshold
-        is_done_speaking = silence_duration >= VAD_COMPLETION_THRESHOLD
+        # User is done speaking if:
+        # 1. We have detected speech at some point (overall_speech_ratio > 0)
+        # 2. Silence duration exceeds threshold
+        has_detected_speech = overall_speech_ratio > 0.1  # At least 10% speech detected
+        is_done_speaking = has_detected_speech and silence_duration >= VAD_COMPLETION_THRESHOLD
         
-        log(f"Cobra VAD Decision: is_done={is_done_speaking} (silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
+        log(f"Cobra VAD Decision: is_done={is_done_speaking} (has_speech: {has_detected_speech}, silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
         
         return is_done_speaking, overall_speech_ratio
         
@@ -1579,7 +1588,7 @@ def listen_for_speech(timeout=T_NORMAL):
                     log("Cobra VAD: No speech in current frame, checking completion...")
             
             # Check for completion if we've been detecting speech for a while
-            if speech_detected and len(audio_buffer) > frame_bytes * 5:
+            if speech_detected and len(audio_buffer) > frame_bytes * 10:  # Increased buffer requirement
                 try:
                     is_done, speech_ratio = analyze_speech_completion_cobra(audio_buffer)
                     if is_done:
@@ -1587,7 +1596,7 @@ def listen_for_speech(timeout=T_NORMAL):
                         break
                     else:
                         # Log current state for debugging (less frequent to avoid spam)
-                        if int(current_time) % 2 == 0:  # Log every 2 seconds
+                        if int(current_time) % 3 == 0:  # Log every 3 seconds
                             log(f"Cobra VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
                 except Exception as e:
                     log(f"Cobra VAD error: {e}, continuing with timeout fallback")
