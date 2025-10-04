@@ -7,9 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import requests
 import pvporcupine  # pip install pvporcupine
-from pyannote.audio import Pipeline
-import tempfile
-import wave
+import pvcobra
 
 # GPIO imports for reed switch
 try:
@@ -73,15 +71,15 @@ elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
-# Speech detection config - Pyannote VAD primary, RMS fallback
-SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with Pyannote VAD)
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with Pyannote VAD
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with Pyannote VAD
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with Pyannote VAD
+# Speech detection config - Cobra VAD primary, RMS fallback
+SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with Cobra VAD)
+SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with Cobra VAD
+QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with Cobra VAD
+MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with Cobra VAD
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
-# Pyannote VAD configuration
-PYANNOTE_VAD_TOKEN = os.getenv("PYANNOTE_VAD_TOKEN", "")  # Hugging Face token for pyannote VAD
+# Cobra VAD configuration
+COBRA_VAD_THRESHOLD = float(os.getenv("COBRA_VAD_THRESHOLD", "0.5"))  # Voice probability threshold (0.0-1.0)
 VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "1.0"))  # Seconds of silence to consider speech complete
 
 # Noise adaptation settings
@@ -1217,20 +1215,15 @@ def text_to_speech_elevenlabs(text):
         return b""
 
 # ---------- Voice Activity Detection ----------
-# Initialize Pyannote VAD
+# Initialize Cobra VAD
 try:
-    if PYANNOTE_VAD_TOKEN:
-        vad_pipeline = Pipeline.from_pretrained("pyannote/voice-activity-detection", use_auth_token=PYANNOTE_VAD_TOKEN)
-        VAD_AVAILABLE = True
-        log("Pyannote VAD initialized successfully")
-    else:
-        log("Pyannote VAD token not provided, falling back to RMS-based detection")
-        VAD_AVAILABLE = False
-        vad_pipeline = None
+    cobra_handle = pvcobra.create(access_key=PICOVOICE_ACCESS_KEY)
+    VAD_AVAILABLE = True
+    log(f"Cobra VAD initialized successfully - Sample rate: {cobra_handle.sample_rate}, Frame length: {cobra_handle.frame_length}")
 except Exception as e:
-    log(f"Failed to initialize Pyannote VAD: {e}")
+    log(f"Failed to initialize Cobra VAD: {e}")
     VAD_AVAILABLE = False
-    vad_pipeline = None
+    cobra_handle = None
 
 def calculate_rms(audio_data):
     """Calculate RMS (Root Mean Square) of audio data for voice activity detection (legacy)"""
@@ -1245,106 +1238,113 @@ def calculate_rms(audio_data):
     rms = math.sqrt(sum_squares / len(samples))
     return rms
 
-def is_speech_detected_pyannote(audio_data, sample_rate=16000):
-    """Determine if audio contains speech using Pyannote VAD"""
+def is_speech_detected_cobra(audio_data):
+    """Determine if audio contains speech using Cobra VAD"""
     if not VAD_AVAILABLE or len(audio_data) == 0:
         return False
     
     try:
-        # Create temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-            # Write WAV header and audio data
-            with wave.open(temp_file.name, 'wb') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(audio_data)
-            
-            # Run VAD on the audio file
-            output = vad_pipeline(temp_file.name)
-            
-            # Check if there's any speech detected
-            timeline = output.get_timeline().support()
-            return len(timeline) > 0
-            
+        # Convert bytes to 16-bit PCM samples
+        samples = struct.unpack('<' + 'h' * (len(audio_data) // 2), audio_data)
+        
+        # Process audio in frames
+        frame_length = cobra_handle.frame_length
+        speech_frames = 0
+        total_frames = 0
+        
+        for i in range(0, len(samples), frame_length):
+            frame = samples[i:i + frame_length]
+            if len(frame) == frame_length:
+                total_frames += 1
+                voice_probability = cobra_handle.process(frame)
+                if voice_probability > COBRA_VAD_THRESHOLD:
+                    speech_frames += 1
+        
+        # Return True if more than 20% of frames contain speech
+        if total_frames == 0:
+            return False
+        
+        speech_ratio = speech_frames / total_frames
+        return speech_ratio > 0.2
+        
     except Exception as e:
-        log(f"Pyannote VAD error: {e}")
+        log(f"Cobra VAD error: {e}")
         # Fallback to RMS
         rms = calculate_rms(audio_data)
         return rms > SPEECH_THRESHOLD
-    finally:
-        # Clean up temporary file
-        try:
-            os.unlink(temp_file.name)
-        except:
-            pass
 
-def analyze_speech_completion_pyannote(audio_data, sample_rate=16000):
-    """Analyze audio to determine if user has finished speaking using Pyannote VAD"""
+def analyze_speech_completion_cobra(audio_data):
+    """Analyze audio to determine if user has finished speaking using Cobra VAD"""
     if not VAD_AVAILABLE or len(audio_data) == 0:
         return False, 0.0
     
     try:
-        # Create temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-            # Write WAV header and audio data
-            with wave.open(temp_file.name, 'wb') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(audio_data)
-            
-            # Run VAD on the audio file
-            output = vad_pipeline(temp_file.name)
-            
-            # Get speech timeline
-            timeline = output.get_timeline().support()
-            
-            if len(timeline) == 0:
-                # No speech detected at all
-                log("Pyannote VAD: No speech detected")
-                return False, 0.0
-            
-            # Get the duration of the audio
-            audio_duration = len(audio_data) / (sample_rate * 2)  # 2 bytes per sample
-            
-            # Find the last speech segment
-            last_speech_end = max(segment.end for segment in timeline)
-            
-            # Calculate silence duration since last speech
-            silence_duration = audio_duration - last_speech_end
-            
-            log(f"Pyannote VAD Analysis: audio_duration={audio_duration:.2f}s, last_speech_end={last_speech_end:.2f}s, silence_duration={silence_duration:.2f}s")
-            
-            # User is done speaking if silence duration exceeds threshold
-            is_done_speaking = silence_duration >= VAD_COMPLETION_THRESHOLD
-            
-            log(f"Pyannote VAD Decision: is_done={is_done_speaking} (silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
-            
-            # Return speech ratio (proportion of audio that contains speech)
-            total_speech_duration = sum(segment.duration for segment in timeline)
-            speech_ratio = total_speech_duration / audio_duration if audio_duration > 0 else 0.0
-            
-            return is_done_speaking, speech_ratio
-            
+        # Convert bytes to 16-bit PCM samples
+        samples = struct.unpack('<' + 'h' * (len(audio_data) // 2), audio_data)
+        
+        # Process audio in frames
+        frame_length = cobra_handle.frame_length
+        speech_frames = 0
+        total_frames = 0
+        recent_speech_frames = 0
+        recent_frames = 0
+        
+        # Calculate how many frames to look at for recent activity (last ~600ms)
+        sample_rate = cobra_handle.sample_rate
+        recent_duration_ms = 600
+        recent_frame_count = int((sample_rate * recent_duration_ms / 1000) / frame_length)
+        
+        frames = []
+        for i in range(0, len(samples), frame_length):
+            frame = samples[i:i + frame_length]
+            if len(frame) == frame_length:
+                frames.append(frame)
+        
+        # Analyze all frames for overall speech ratio
+        for frame in frames:
+            total_frames += 1
+            voice_probability = cobra_handle.process(frame)
+            if voice_probability > COBRA_VAD_THRESHOLD:
+                speech_frames += 1
+        
+        # Analyze recent frames for speech activity
+        recent_frames_to_check = min(recent_frame_count, len(frames))
+        for frame in frames[-recent_frames_to_check:]:
+            recent_frames += 1
+            voice_probability = cobra_handle.process(frame)
+            if voice_probability > COBRA_VAD_THRESHOLD:
+                recent_speech_frames += 1
+        
+        # Calculate ratios
+        overall_speech_ratio = speech_frames / total_frames if total_frames > 0 else 0.0
+        recent_speech_ratio = recent_speech_frames / recent_frames if recent_frames > 0 else 0.0
+        
+        # Debug logging
+        log(f"Cobra VAD Analysis: total_frames={total_frames}, speech_frames={speech_frames}, recent_frames={recent_frames}, recent_speech_frames={recent_speech_frames}")
+        log(f"Cobra VAD Ratios: overall={overall_speech_ratio:.2f}, recent={recent_speech_ratio:.2f}")
+        
+        # User is done speaking if:
+        # 1. We have enough recent frames to analyze
+        # 2. Recent frames show low speech activity (user stopped talking)
+        # 3. Recent speech ratio is below 30% (user has stopped speaking)
+        is_done_speaking = (recent_frames >= 5 and recent_speech_ratio < 0.3)
+        
+        log(f"Cobra VAD Decision: is_done={is_done_speaking} (recent_frames >= 5: {recent_frames >= 5}, recent < 0.3: {recent_speech_ratio < 0.3})")
+        
+        return is_done_speaking, overall_speech_ratio
+        
     except Exception as e:
-        log(f"Pyannote VAD error: {e}")
+        log(f"Cobra VAD error: {e}")
         # Fallback: assume not done speaking
         return False, 0.0
-    finally:
-        # Clean up temporary file
-        try:
-            os.unlink(temp_file.name)
-        except:
-            pass
 
 def is_speech_detected(audio_data, threshold=SPEECH_THRESHOLD, adaptive_threshold=None):
-    """Determine if audio contains speech - uses Pyannote VAD by default, falls back to RMS"""
+    """Determine if audio contains speech - uses Cobra VAD by default, falls back to RMS"""
     if VAD_AVAILABLE:
         try:
-            return is_speech_detected_pyannote(audio_data)
+            return is_speech_detected_cobra(audio_data)
         except Exception as e:
-            log(f"Pyannote VAD failed: {e}, falling back to RMS")
+            log(f"Cobra VAD failed: {e}, falling back to RMS")
     
     # Fallback to RMS-based detection
     rms = calculate_rms(audio_data)
@@ -1558,36 +1558,36 @@ def listen_for_speech(timeout=T_NORMAL):
             
             audio_buffer += chunk
             
-            # Check for speech in this frame using Pyannote VAD
+            # Check for speech in this frame using Cobra VAD
             current_time = time.time()
             
             if is_speech_detected(chunk, SPEECH_THRESHOLD, adaptive_threshold):
                 if not speech_detected:
-                    log("Pyannote VAD: Speech detected, continuing capture...")
+                    log("Cobra VAD: Speech detected, continuing capture...")
                     speech_detected = True
                     speech_start_time = current_time
                 else:
                     # Still detecting speech, log occasionally
                     if int(current_time) % 3 == 0:  # Log every 3 seconds
-                        log("Pyannote VAD: Still detecting speech...")
+                        log("Cobra VAD: Still detecting speech...")
             else:
                 # No speech detected in this frame
                 if speech_detected:
-                    log("Pyannote VAD: No speech in current frame, checking completion...")
+                    log("Cobra VAD: No speech in current frame, checking completion...")
             
             # Check for completion if we've been detecting speech for a while
             if speech_detected and len(audio_buffer) > frame_bytes * 5:
                 try:
-                    is_done, speech_ratio = analyze_speech_completion_pyannote(audio_buffer)
+                    is_done, speech_ratio = analyze_speech_completion_cobra(audio_buffer)
                     if is_done:
-                        log(f"Pyannote VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
+                        log(f"Cobra VAD: User finished speaking (speech ratio: {speech_ratio:.2f})")
                         break
                     else:
                         # Log current state for debugging (less frequent to avoid spam)
                         if int(current_time) % 2 == 0:  # Log every 2 seconds
-                            log(f"Pyannote VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
+                            log(f"Cobra VAD: Still speaking (speech ratio: {speech_ratio:.2f})")
                 except Exception as e:
-                    log(f"Pyannote VAD error: {e}, continuing with timeout fallback")
+                    log(f"Cobra VAD error: {e}, continuing with timeout fallback")
                     # Only use timeout as absolute fallback
                     if current_time - speech_start_time >= MAX_SPEECH_DURATION:
                         log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
@@ -2157,7 +2157,7 @@ async def main():
     log(f"ElevenLabs Model ID: {ELEVENLABS_MODEL_ID}")
     log(f"SOLSTIS Wake Word: {SOLSTIS_WAKEWORD_PATH}")
     log(f"STEP COMPLETE Wake Word: {STEP_COMPLETE_WAKEWORD_PATH}")
-    log(f"Speech Detection - Pyannote VAD: Completion threshold={VAD_COMPLETION_THRESHOLD}s")
+    log(f"Speech Detection - Cobra VAD: Threshold={COBRA_VAD_THRESHOLD}, Completion threshold={VAD_COMPLETION_THRESHOLD}s")
     log(f"Speech Detection - RMS fallback: {SPEECH_THRESHOLD}, Max duration: {MAX_SPEECH_DURATION}s")
     log(f"Noise Adaptation - Enabled: {NOISE_ADAPTATION_ENABLED}, Multiplier: {NOISE_MULTIPLIER}x, Samples: {NOISE_SAMPLES_COUNT}")
     log(f"Timeouts - Short: {T_SHORT}s, Normal: {T_NORMAL}s, Long: {T_LONG}s")
