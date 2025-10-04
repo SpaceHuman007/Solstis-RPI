@@ -80,7 +80,7 @@ MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum
 
 # Cobra VAD configuration
 COBRA_VAD_THRESHOLD = float(os.getenv("COBRA_VAD_THRESHOLD", "0.5"))  # Voice probability threshold (0.0-1.0)
-VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "1.0"))  # Seconds of silence to consider speech complete
+VAD_COMPLETION_THRESHOLD = float(os.getenv("VAD_COMPLETION_THRESHOLD", "0.8"))  # Seconds of silence to consider speech complete
 
 # Noise adaptation settings
 NOISE_ADAPTATION_ENABLED = os.getenv("NOISE_ADAPTATION_ENABLED", "false").lower() == "true"
@@ -1284,15 +1284,11 @@ def analyze_speech_completion_cobra(audio_data):
         
         # Process audio in frames
         frame_length = cobra_handle.frame_length
-        speech_frames = 0
-        total_frames = 0
-        recent_speech_frames = 0
-        recent_frames = 0
-        
-        # Calculate how many frames to look at for recent activity (last ~600ms)
         sample_rate = cobra_handle.sample_rate
-        recent_duration_ms = 600
-        recent_frame_count = int((sample_rate * recent_duration_ms / 1000) / frame_length)
+        
+        # Track speech activity over time
+        speech_timeline = []
+        frame_duration = frame_length / sample_rate  # Duration of each frame in seconds
         
         frames = []
         for i in range(0, len(samples), frame_length):
@@ -1300,36 +1296,43 @@ def analyze_speech_completion_cobra(audio_data):
             if len(frame) == frame_length:
                 frames.append(frame)
         
-        # Analyze all frames for overall speech ratio
-        for frame in frames:
-            total_frames += 1
+        # Analyze each frame and track speech activity
+        for i, frame in enumerate(frames):
             voice_probability = cobra_handle.process(frame)
-            if voice_probability > COBRA_VAD_THRESHOLD:
-                speech_frames += 1
+            is_speech = voice_probability > COBRA_VAD_THRESHOLD
+            timestamp = i * frame_duration
+            speech_timeline.append((timestamp, is_speech))
         
-        # Analyze recent frames for speech activity
-        recent_frames_to_check = min(recent_frame_count, len(frames))
-        for frame in frames[-recent_frames_to_check:]:
-            recent_frames += 1
-            voice_probability = cobra_handle.process(frame)
-            if voice_probability > COBRA_VAD_THRESHOLD:
-                recent_speech_frames += 1
+        if not speech_timeline:
+            return False, 0.0
         
-        # Calculate ratios
-        overall_speech_ratio = speech_frames / total_frames if total_frames > 0 else 0.0
-        recent_speech_ratio = recent_speech_frames / recent_frames if recent_frames > 0 else 0.0
+        # Find the last speech activity
+        last_speech_time = None
+        for timestamp, is_speech in reversed(speech_timeline):
+            if is_speech:
+                last_speech_time = timestamp
+                break
         
-        # Debug logging
-        log(f"Cobra VAD Analysis: total_frames={total_frames}, speech_frames={speech_frames}, recent_frames={recent_frames}, recent_speech_frames={recent_speech_frames}")
-        log(f"Cobra VAD Ratios: overall={overall_speech_ratio:.2f}, recent={recent_speech_ratio:.2f}")
+        if last_speech_time is None:
+            # No speech detected at all
+            log("Cobra VAD: No speech detected")
+            return False, 0.0
         
-        # User is done speaking if:
-        # 1. We have enough recent frames to analyze
-        # 2. Recent frames show low speech activity (user stopped talking)
-        # 3. Recent speech ratio is below 30% (user has stopped speaking)
-        is_done_speaking = (recent_frames >= 5 and recent_speech_ratio < 0.3)
+        # Calculate silence duration since last speech
+        total_duration = len(frames) * frame_duration
+        silence_duration = total_duration - last_speech_time
         
-        log(f"Cobra VAD Decision: is_done={is_done_speaking} (recent_frames >= 5: {recent_frames >= 5}, recent < 0.3: {recent_speech_ratio < 0.3})")
+        # Calculate overall speech ratio
+        speech_frames = sum(1 for _, is_speech in speech_timeline if is_speech)
+        overall_speech_ratio = speech_frames / len(speech_timeline) if speech_timeline else 0.0
+        
+        log(f"Cobra VAD Analysis: total_duration={total_duration:.2f}s, last_speech_time={last_speech_time:.2f}s, silence_duration={silence_duration:.2f}s")
+        log(f"Cobra VAD Ratios: overall_speech_ratio={overall_speech_ratio:.2f}")
+        
+        # User is done speaking if silence duration exceeds threshold
+        is_done_speaking = silence_duration >= VAD_COMPLETION_THRESHOLD
+        
+        log(f"Cobra VAD Decision: is_done={is_done_speaking} (silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
         
         return is_done_speaking, overall_speech_ratio
         
