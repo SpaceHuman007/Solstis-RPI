@@ -1588,7 +1588,8 @@ def listen_for_speech(timeout=T_NORMAL):
                     log("Cobra VAD: No speech in current frame, checking completion...")
             
             # Check for completion if we've been detecting speech for a while
-            if speech_detected and len(audio_buffer) > frame_bytes * 10:  # Increased buffer requirement
+            # Only check completion if we have enough audio AND have been detecting speech for at least 2 seconds
+            if speech_detected and len(audio_buffer) > frame_bytes * 10 and speech_start_time and (current_time - speech_start_time) >= 2.0:
                 try:
                     is_done, speech_ratio = analyze_speech_completion_cobra(audio_buffer)
                     if is_done:
@@ -1610,8 +1611,13 @@ def listen_for_speech(timeout=T_NORMAL):
                 log(f"Maximum speech duration ({MAX_SPEECH_DURATION}s) reached, stopping")
                 break
 
+        # Check if we have any audio captured
         if len(audio_buffer) == 0:
-            log("No audio captured")
+            # Only log "No audio captured" if we actually timed out, not if completion triggered early
+            if time.time() - start_time >= timeout:
+                log("No audio captured - timeout reached")
+            else:
+                log("No audio captured - completion triggered too early")
             return None
 
         # Resample from mic sample rate to output sample rate
