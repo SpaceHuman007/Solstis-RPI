@@ -1336,9 +1336,9 @@ def analyze_speech_completion_cobra(audio_data):
         log(f"Cobra VAD Ratios: overall_speech_ratio={overall_speech_ratio:.2f}")
         
         # User is done speaking if:
-        # 1. We have detected speech at some point (overall_speech_ratio > 0)
+        # 1. We have detected speech at some point (overall_speech_ratio > 0.2)
         # 2. Silence duration exceeds threshold
-        has_detected_speech = overall_speech_ratio > 0.1  # At least 10% speech detected
+        has_detected_speech = overall_speech_ratio > 0.2  # At least 20% speech detected (increased from 10%)
         is_done_speaking = has_detected_speech and silence_duration >= VAD_COMPLETION_THRESHOLD
         
         log(f"Cobra VAD Decision: is_done={is_done_speaking} (has_speech: {has_detected_speech}, silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
@@ -1441,6 +1441,11 @@ def wait_for_wake_word(wake_word_type="SOLSTIS"):
     arec = None
 
     try:
+        # Clean up any existing audio processes before starting
+        log("🧹 Cleaning up audio processes before wake word detection")
+        cleanup_audio_processes()
+        time.sleep(1.0)  # Give devices time to release
+        
         # Load both wake word models
         log(f"Loading Porcupine with keywords: {SOLSTIS_WAKEWORD_PATH}, {STEP_COMPLETE_WAKEWORD_PATH}")
         porcupine = pvporcupine.create(
@@ -1478,6 +1483,9 @@ def wait_for_wake_word(wake_word_type="SOLSTIS"):
                         arec = spawn_arecord(mic_sr, MIC_DEVICE)
                         continue
                     else:
+                        log("🔧 Mic stream ended - attempting device reset")
+                        cleanup_audio_processes()
+                        time.sleep(2.0)  # Longer wait for device reset
                         raise RuntimeError("Mic stream ended (EOF). Is the device busy or disconnected?")
 
                 buf = leftover + chunk
@@ -1588,8 +1596,8 @@ def listen_for_speech(timeout=T_NORMAL):
                     log("Cobra VAD: No speech in current frame, checking completion...")
             
             # Check for completion if we've been detecting speech for a while
-            # Only check completion if we have enough audio AND have been detecting speech for at least 2 seconds
-            if speech_detected and len(audio_buffer) > frame_bytes * 10 and speech_start_time and (current_time - speech_start_time) >= 2.0:
+            # Only check completion if we have enough audio AND have been detecting speech for at least 3 seconds
+            if speech_detected and len(audio_buffer) > frame_bytes * 15 and speech_start_time and (current_time - speech_start_time) >= 3.0:
                 try:
                     is_done, speech_ratio = analyze_speech_completion_cobra(audio_buffer)
                     if is_done:
@@ -1862,6 +1870,8 @@ def handle_conversation():
             if outcome == ResponseOutcome.NEED_MORE_INFO:
                 # Model keeps listening automatically
                 log("📝 Need more info, continuing to listen")
+                # Give user time to respond after Solstis finishes speaking
+                time.sleep(1.0)
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
