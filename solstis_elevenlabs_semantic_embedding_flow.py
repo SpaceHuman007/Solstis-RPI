@@ -1784,12 +1784,14 @@ def handle_conversation():
         
         # Listen for initial response
         log("👂 Listening for initial response")
+        cleanup_audio_processes()  # Clean up before listening
         audio_data = listen_for_speech(timeout=T_SHORT)
         
         if audio_data is None:
             # First retry of opening
             log("🔄 No response, retrying opening message")
             say(opening_message())
+            cleanup_audio_processes()  # Clean up before retry
             audio_data = listen_for_speech(timeout=T_SHORT)
             
             if audio_data is None:
@@ -1881,6 +1883,11 @@ def handle_conversation():
                 # Add extra delay to prevent audio device conflicts
                 log("🔊 Waiting for audio device to stabilize after playback...")
                 time.sleep(2.5)  # Increased delay to prevent device conflicts
+                
+                # Clean up any lingering audio processes before listening
+                log("🧹 Cleaning up audio processes before listening...")
+                cleanup_audio_processes()
+                
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
@@ -1940,6 +1947,7 @@ def handle_conversation():
                     elif wake_word == "SOLSTIS":
                         log("🔊 SOLSTIS wake word detected during step completion")
                         say(prompt_continue_help())
+                        cleanup_audio_processes()  # Clean up before listening
                         audio_data = listen_for_speech(timeout=T_NORMAL)
                         
                         if audio_data is None:
@@ -1960,6 +1968,7 @@ def handle_conversation():
                 # Emergency situation - continue conversation to provide ongoing support
                 log("🚨 Emergency situation detected - continuing conversation for support")
                 # Continue listening for more input to provide additional guidance
+                cleanup_audio_processes()  # Clean up before listening
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
@@ -1991,6 +2000,7 @@ def handle_conversation():
                 current_state = ConversationState.ACTIVE_ASSISTANCE  # Stay in active assistance for confirmation
                 
                 # Listen for user confirmation
+                cleanup_audio_processes()  # Clean up before listening
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
@@ -2032,6 +2042,7 @@ def handle_conversation():
                         say(prompt_continue_help())
                         # Set flag to skip opening message on next iteration
                         skip_opening_message = True
+                        cleanup_audio_processes()  # Clean up before listening
                         audio_data = listen_for_speech(timeout=T_NORMAL)
                         
                         if audio_data is None:
