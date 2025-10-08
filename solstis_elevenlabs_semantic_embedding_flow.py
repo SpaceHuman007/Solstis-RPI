@@ -1549,6 +1549,24 @@ def listen_for_speech(timeout=T_NORMAL):
         frame_bytes = frame_len * 2  # 16-bit mono => 2 bytes/sample
 
         log(f"Mic device: {MIC_DEVICE} @ {mic_sr} Hz | frame {frame_len} samples ({frame_bytes} bytes)")
+        
+        # Test microphone before starting
+        log("🎤 Testing microphone before starting...")
+        test_cmd = ["arecord", "-D", MIC_DEVICE, "-f", "S16_LE", "-r", str(mic_sr), "-c", "1", "-d", "1", "/dev/null"]
+        test_result = subprocess.run(test_cmd, capture_output=True, timeout=5)
+        if test_result.returncode != 0:
+            log(f"⚠️  Microphone test failed: {test_result.stderr.decode()}")
+            log("🔄 Attempting device reset and retry...")
+            reset_audio_devices()
+            test_result = subprocess.run(test_cmd, capture_output=True, timeout=5)
+            if test_result.returncode != 0:
+                log(f"❌ Microphone still not working after reset: {test_result.stderr.decode()}")
+                return None
+            else:
+                log("✅ Microphone working after reset")
+        else:
+            log("✅ Microphone test passed")
+        
         arec = spawn_arecord(mic_sr, MIC_DEVICE)
 
         # Measure noise floor for adaptive threshold
@@ -1575,7 +1593,20 @@ def listen_for_speech(timeout=T_NORMAL):
                 
             chunk = arec.stdout.read(frame_bytes)
             if not chunk:
-                break
+                # Check if the process is still running
+                if arec.poll() is not None:
+                    # Process has terminated, check for errors
+                    stderr_output = arec.stderr.read().decode('utf-8', errors='ignore')
+                    if stderr_output:
+                        log(f"⚠️  arecord process terminated with error: {stderr_output}")
+                    else:
+                        log("⚠️  arecord process terminated unexpectedly")
+                    break
+                else:
+                    # Process still running but no data - device might be busy
+                    log("⚠️  No audio data from arecord, device might be busy")
+                    time.sleep(0.1)  # Brief pause before retry
+                    continue
             
             audio_buffer += chunk
             
@@ -1628,11 +1659,14 @@ def listen_for_speech(timeout=T_NORMAL):
 
         # Check if we have any audio captured
         if len(audio_buffer) == 0:
-            # Only log "No audio captured" if we actually timed out, not if completion triggered early
-            if time.time() - start_time >= timeout:
-                log("No audio captured - timeout reached")
+            # Determine the reason for no audio capture
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= timeout:
+                log(f"No audio captured - timeout reached ({elapsed_time:.1f}s)")
+            elif arec.poll() is not None:
+                log("No audio captured - arecord process failed")
             else:
-                log("No audio captured - completion triggered too early")
+                log(f"No audio captured - device issue or early termination ({elapsed_time:.1f}s)")
             return None
 
         # Resample from mic sample rate to output sample rate
@@ -1784,7 +1818,7 @@ def handle_conversation():
         
         # Listen for initial response
         log("👂 Listening for initial response")
-        cleanup_audio_processes()  # Clean up before listening
+        reset_audio_devices()  # Reset devices before listening
         audio_data = listen_for_speech(timeout=T_SHORT)
         
         if audio_data is None:
@@ -1947,7 +1981,7 @@ def handle_conversation():
                     elif wake_word == "SOLSTIS":
                         log("🔊 SOLSTIS wake word detected during step completion")
                         say(prompt_continue_help())
-                        cleanup_audio_processes()  # Clean up before listening
+                        reset_audio_devices()  # Reset devices before listening
                         audio_data = listen_for_speech(timeout=T_NORMAL)
                         
                         if audio_data is None:
@@ -1968,7 +2002,7 @@ def handle_conversation():
                 # Emergency situation - continue conversation to provide ongoing support
                 log("🚨 Emergency situation detected - continuing conversation for support")
                 # Continue listening for more input to provide additional guidance
-                cleanup_audio_processes()  # Clean up before listening
+                reset_audio_devices()  # Reset devices before listening
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
@@ -2000,7 +2034,7 @@ def handle_conversation():
                 current_state = ConversationState.ACTIVE_ASSISTANCE  # Stay in active assistance for confirmation
                 
                 # Listen for user confirmation
-                cleanup_audio_processes()  # Clean up before listening
+                reset_audio_devices()  # Reset devices before listening
                 audio_data = listen_for_speech(timeout=T_NORMAL)
                 
                 if audio_data is None:
@@ -2042,7 +2076,7 @@ def handle_conversation():
                         say(prompt_continue_help())
                         # Set flag to skip opening message on next iteration
                         skip_opening_message = True
-                        cleanup_audio_processes()  # Clean up before listening
+                        reset_audio_devices()  # Reset devices before listening
                         audio_data = listen_for_speech(timeout=T_NORMAL)
                         
                         if audio_data is None:
