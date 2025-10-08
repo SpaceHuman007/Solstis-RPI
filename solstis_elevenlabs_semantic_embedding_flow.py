@@ -281,27 +281,27 @@ KEYWORD_MAPPINGS = {
         ],
         "description": "Band-Aids for small cuts and wounds"
     },
-    "4\" x 4\" Gauze Pads": {
+    "4 inch by 4 inch Gauze Pads": {
         "keywords": [
             "gauze pad", "gauze pads", "4 gauze pads", "4x4 gauze", 
             "square gauze", "sterile gauze", "dressing pad", "wound pad",
             "gauze square", "medical gauze", "absorbent pad"
         ],
-        "description": "4\" x 4\" Gauze Pads for wound dressing"
+        "description": "4 inch x 4 inch Gauze Pads for wound dressing"
     },
-    "2\" Roll Gauze": {
+    "2 inch Roll Gauze": {
         "keywords": [
             "roll gauze", "2 roll gauze", "gauze roll", "rolled gauze", 
             "gauze wrap", "bandage roll", "wrapping gauze", "medical wrap"
         ],
-        "description": "2\" Roll Gauze for wrapping and securing dressings"
+        "description": "2 inch Roll Gauze for wrapping and securing dressings"
     },
-    "5\" x 9\" ABD Pad": {
+    "5 inch by 9 inch ABD Pad": {
         "keywords": [
             "abd pad", "abd", "abdominal pad", "large pad", "big pad", 
             "5x9 pad", "major wound pad", "heavy bleeding pad"
         ],
-        "description": "5\" x 9\" ABD Pad for large wounds and heavy bleeding"
+        "description": "5 inch by 9 inch ABD Pad for large wounds and heavy bleeding"
     },
     "Cloth Medical Tape": {
         "keywords": [
@@ -450,7 +450,7 @@ LED_MAPPINGS = {
     "QuickClot Gauze": [(62, 86), (270, 293), (264, 264)],
     "Burn Spray": [(41, 62), (234, 269), (226, 226)],
     "Burn Gel Dressing": [(241, 262), (220, 226), (601, 629)],
-    "4\" x 4\" Gauze Pads": [(581, 623), (636, 642), (720, 727)],
+    "4 inch by 4 inch Gauze Pads": [(581, 623), (636, 642), (720, 727)],
     "Instant Cold Pack": [(706, 719), (199, 212), (581, 594), (553, 567)],
     "Electrolyte Powder Pack": [(691, 705), (523, 567)],
     "Triple Antibiotic Ointment": [(493, 548), (186, 193)],
@@ -462,8 +462,8 @@ LED_MAPPINGS = {
     "Cloth Medical Tape": [(382, 396), (335, 341), (111, 120)],
     "Elastic Ace Bandage": [(318, 352)],
     "Sting & Bite Relief Wipes": [(661, 678), (386, 389), (370, 377)],
-    "2\" Roll Gauze": [(370, 381), (648, 661), (341, 356)],
-    "5\" x 9\" ABD Pad": [(294, 326), (86, 102)],
+    "2 inch Roll Gauze": [(370, 381), (648, 661), (341, 356)],
+    "5 inch by 9inch ABD Pad": [(294, 326), (86, 102)],
     "Oral Glucose Gel": [(303, 317), (275, 285), (630, 647), (263, 264), (352, 356)],
 }
 
@@ -966,9 +966,9 @@ def get_system_prompt():
     # Standard kit contents
     kit_contents = [
         "Band-Aids",
-        "4\" x 4\" Gauze Pads",
-        "2\" Roll Gauze",
-        "5\" x 9\" ABD Pad",
+        "4 inch by 4 inch Gauze Pads",
+        "2 inch Roll Gauze",
+        "5 inch by 9 inch ABD Pad",
         "Cloth Medical Tape",
         "Triple Antibiotic Ointment",
         "Tweezers",
@@ -996,9 +996,9 @@ AVAILABLE ITEMS IN YOUR KIT:
 
 IMPORTANT: When referencing kit items, use the EXACT names from the list above. For example:
 - Say "Band-Aids" not "bandages" or "adhesive bandages"
-- Say "4\" x 4\" Gauze Pads" not "gauze" or "gauze squares"
-- Say "2\" Roll Gauze" not "roll gauze" or "gauze roll"
-- Say "5\" x 9\" ABD Pad" not "ABD pad" or "large pad"
+- Say "4 inch by 4 inch Gauze Pads" not "gauze" or "gauze squares"
+- Say "2 inch Roll Gauze" not "roll gauze" or "gauze roll"
+- Say "5 inch by 9 inch ABD Pad" not "ABD pad" or "large pad"
 - Say "Cloth Medical Tape" not "medical tape" or "tape"
 - Say "Triple Antibiotic Ointment" not "antibiotic ointment" or "ointment"
 - Say "Tweezers" not "forceps" or "tweezers"
@@ -1083,7 +1083,7 @@ BANDAGE PLACEMENT—HANDS (DEFAULT TIPS):
 - For finger joints: "Place the Band-Aid pad over the cut and angle the adhesive so it doesn't bunch at the knuckle. Let me know when you're done." If reinforcement needed: "Now reinforce with Cloth Medical Tape from the highlighted space. Let me know when you're done."
 
 BLEEDING CONTROL ESCALATION:
-- First attempt: Direct pressure with 4" x 4" Gauze Pads for 5 minutes
+- First attempt: Direct pressure with 4 inch x 4 inch Gauze Pads for 5 minutes
 - If bleeding continues: Apply QuickClot Gauze with firm pressure
 - If still bleeding: Apply more pressure and hold longer
 - If bleeding persists after multiple attempts: ESCALATE TO EMERGENCY CARE
@@ -1556,6 +1556,7 @@ def listen_for_speech(timeout=T_NORMAL):
 
         # Capture audio until speech pause
         log("Capturing audio until speech pause...")
+        log(f"Will wait up to {timeout}s for speech to start, then check for completion")
         audio_buffer = b""
         silence_start_time = None
         speech_start_time = None
@@ -1592,12 +1593,18 @@ def listen_for_speech(timeout=T_NORMAL):
                         log("Cobra VAD: Still detecting speech...")
             else:
                 # No speech detected in this frame
-                if speech_detected:
-                    log("Cobra VAD: No speech in current frame, checking completion...")
+                if not speech_detected:
+                    # Still waiting for speech to start
+                    elapsed = current_time - start_time
+                    if int(elapsed) % 5 == 0:  # Log every 5 seconds while waiting
+                        log(f"Cobra VAD: Waiting for speech to start... ({elapsed:.1f}s elapsed)")
+                elif speech_detected:
+                    silence_duration = current_time - speech_start_time if speech_start_time else 0
+                    log(f"Cobra VAD: No speech in current frame, silence duration: {silence_duration:.1f}s")
             
-            # Check for completion if we've been detecting speech for a while
-            # Only check completion if we have enough audio AND have been detecting speech for at least 3 seconds
-            if speech_detected and len(audio_buffer) > frame_bytes * 15 and speech_start_time and (current_time - speech_start_time) >= 3.0:
+            # Check for completion ONLY if we've been detecting speech for a while
+            # Only check completion if we have enough audio AND have been detecting speech for at least 2 seconds
+            if speech_detected and len(audio_buffer) > frame_bytes * 15 and speech_start_time and (current_time - speech_start_time) >= 2.0:
                 try:
                     is_done, speech_ratio = analyze_speech_completion_cobra(audio_buffer)
                     if is_done:
