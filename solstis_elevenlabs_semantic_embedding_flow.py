@@ -59,10 +59,10 @@ MODEL = os.getenv("MODEL", "gpt-4-turbo")
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 
-# Configure ReSpeaker for input, use default for output to avoid conflicts
+# Configure ReSpeaker for both input and output
 if MIC_DEVICE == "plughw:3,0":
-    OUT_DEVICE = "default"  # Use default device for output to avoid conflicts
-    print(f"[INFO] Using ReSpeaker for input ({MIC_DEVICE}) and default device for output ({OUT_DEVICE})")
+    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
+    print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
 elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
@@ -2084,13 +2084,12 @@ def cleanup_audio_processes(fast: bool = False):
             return
         
         # Normal blocking cleanup
-        log("🧹 Cleaning up audio processes...")
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
         subprocess.run(["fuser", "-k", MIC_DEVICE], check=False, capture_output=True)
-        if OUT_DEVICE and OUT_DEVICE != "default":
+        if OUT_DEVICE:
             subprocess.run(["fuser", "-k", OUT_DEVICE], check=False, capture_output=True)
-        time.sleep(1.5)  # Increased delay for device stabilization
+        time.sleep(1.0)
         log("🧹 Cleaned up existing audio processes")
     except Exception as e:
         log(f"Warning: Could not cleanup audio processes: {e}")
