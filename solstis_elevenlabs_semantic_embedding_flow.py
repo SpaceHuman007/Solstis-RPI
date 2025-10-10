@@ -775,30 +775,115 @@ def opening_message():
     message = f"Hey {USER_NAME}. I'm SOLSTIS and I'm here to help. If this is a life-threatening emergency, please call 9-1-1 now. Otherwise, is there something I can help you with?"
     return message
 
+def contextual_closing_message(conversation_history=None):
+    """Send a contextual closing message based on conversation content"""
+    import random
+    
+    # Check if this was a medical/emergency conversation
+    medical_keywords = ["hurt", "injured", "bleeding", "cut", "wound", "pain", "emergency", "medical", "first aid", "bandage", "treatment"]
+    was_medical = False
+    
+    if conversation_history:
+        for entry in conversation_history[-3:]:  # Check last 3 exchanges
+            content = entry.get("content", "").lower()
+            if any(keyword in content for keyword in medical_keywords):
+                was_medical = True
+                break
+    
+    if was_medical:
+        messages = [
+            f"Take care of yourself! Say '{WAKE_WORD_SOLSTIS}' if you need any follow-up help.",
+            f"Hope you're feeling better! I'm here if you need me - just say '{WAKE_WORD_SOLSTIS}'.",
+            f"Stay safe and take it easy! Remember to say '{WAKE_WORD_SOLSTIS}' if anything comes up.",
+            f"Glad I could help with your injury! Say '{WAKE_WORD_SOLSTIS}' anytime you need assistance.",
+            f"Take care and heal well! I'm always here when you say '{WAKE_WORD_SOLSTIS}'."
+        ]
+    else:
+        messages = [
+            f"Take care! If you need anything else, just say '{WAKE_WORD_SOLSTIS}'.",
+            f"You're all set! I'm here if you need me - just say '{WAKE_WORD_SOLSTIS}'.",
+            f"Glad I could help! Say '{WAKE_WORD_SOLSTIS}' anytime you need assistance.",
+            f"Stay safe! Remember, I'm always here when you say '{WAKE_WORD_SOLSTIS}'.",
+            f"All done! Don't hesitate to say '{WAKE_WORD_SOLSTIS}' if you need more help."
+        ]
+    
+    return random.choice(messages)
+
 def closing_message():
-    """Send the closing message"""
-    message = f"If you need any further help, please let me know by saying '{WAKE_WORD_SOLSTIS}'."
-    return message
+    """Send a varied closing message (legacy function for compatibility)"""
+    return contextual_closing_message()
 
 def prompt_wake():
-    """Prompt user to use wake word"""
-    message = f"OK, if you need me for any help, say {WAKE_WORD_SOLSTIS} to wake me up."
-    return message
+    """Prompt user to use wake word with variety"""
+    import random
+    messages = [
+        f"Got it! Just say '{WAKE_WORD_SOLSTIS}' whenever you need me.",
+        f"No problem! I'll be here when you say '{WAKE_WORD_SOLSTIS}'.",
+        f"Understood! Say '{WAKE_WORD_SOLSTIS}' if you change your mind.",
+        f"Alright! I'm standing by - just say '{WAKE_WORD_SOLSTIS}' to wake me up.",
+        f"Sure thing! Call me anytime with '{WAKE_WORD_SOLSTIS}'."
+    ]
+    return random.choice(messages)
 
 def prompt_no_response():
-    """Prompt when no response is detected"""
-    message = f"I am hearing no response, be sure to say '{WAKE_WORD_SOLSTIS}' if you need my assistance!"
-    return message
+    """Prompt when no response is detected with variety"""
+    import random
+    messages = [
+        f"I'm not hearing anything. Say '{WAKE_WORD_SOLSTIS}' if you need help!",
+        f"No response detected. Just say '{WAKE_WORD_SOLSTIS}' when you're ready.",
+        f"I can't hear you clearly. Try saying '{WAKE_WORD_SOLSTIS}' if you need assistance.",
+        f"Are you there? Say '{WAKE_WORD_SOLSTIS}' if you need my help.",
+        f"I'm listening but not hearing anything. Say '{WAKE_WORD_SOLSTIS}' to get my attention."
+    ]
+    return random.choice(messages)
 
 def prompt_step_complete():
-    """Prompt user to say step complete"""
-    message = f"Say '{WAKE_WORD_STEP_COMPLETE}' when you're done."
-    return message
+    """Prompt user to say step complete with variety"""
+    import random
+    messages = [
+        f"Let me know when you're finished by saying '{WAKE_WORD_STEP_COMPLETE}'.",
+        f"Just say '{WAKE_WORD_STEP_COMPLETE}' when you're done with that step.",
+        f"Say '{WAKE_WORD_STEP_COMPLETE}' once you've completed the task.",
+        f"Give me a heads up with '{WAKE_WORD_STEP_COMPLETE}' when you're finished.",
+        f"Let me know you're done by saying '{WAKE_WORD_STEP_COMPLETE}'."
+    ]
+    return random.choice(messages)
 
 def prompt_continue_help():
-    """Prompt for continued assistance"""
-    message = f"Hey {USER_NAME}, how can I help you?"
-    return message
+    """Prompt for continued assistance with variety"""
+    import random
+    messages = [
+        f"Hi {USER_NAME}! What can I help you with?",
+        f"Hello {USER_NAME}! How can I assist you today?",
+        f"Hey there {USER_NAME}! What do you need help with?",
+        f"Good to see you {USER_NAME}! What can I do for you?",
+        f"Hi {USER_NAME}! I'm here to help - what's going on?"
+    ]
+    return random.choice(messages)
+
+def prompt_emergency_guidance():
+    """Prompt for emergency guidance with variety"""
+    import random
+    messages = [
+        "I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.",
+        "Stay calm and follow the steps. Say 'SOLSTIS' if you need more help.",
+        "Keep following the procedure. I'm here if you need clarification - just say 'SOLSTIS'.",
+        "You're doing great! Say 'SOLSTIS' if you need any additional support.",
+        "I'm monitoring your progress. Say 'SOLSTIS' if you need guidance."
+    ]
+    return random.choice(messages)
+
+def prompt_general_help():
+    """Prompt for general help with variety"""
+    import random
+    messages = [
+        "I'm here if you need any additional help. Say 'SOLSTIS' if you need me.",
+        "Don't hesitate to ask if you need more assistance. Just say 'SOLSTIS'.",
+        "I'm standing by if you need anything else. Say 'SOLSTIS' to get my attention.",
+        "Feel free to reach out if you need more help. Say 'SOLSTIS' anytime.",
+        "I'm here for you if you need additional support. Just say 'SOLSTIS'."
+    ]
+    return random.choice(messages)
 
 def handle_user_feedback(user_text, conversation_history):
     """Handle user feedback about incorrect procedure state detection"""
@@ -1687,6 +1772,118 @@ def listen_for_speech(timeout=T_NORMAL):
             if arec: arec.terminate()
         except: pass
 
+# ---------- Semantic Embedding Functions ----------
+def get_text_embedding(text):
+    """Get OpenAI embedding for text"""
+    try:
+        response = openai.embeddings.create(
+            model=SEMANTIC_MODEL,
+            input=text
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        log(f"Error getting embedding: {e}")
+        return None
+
+def cosine_similarity(vec1, vec2):
+    """Calculate cosine similarity between two vectors"""
+    if not vec1 or not vec2:
+        return 0.0
+    
+    import numpy as np
+    
+    # Convert to numpy arrays
+    a = np.array(vec1)
+    b = np.array(vec2)
+    
+    # Calculate cosine similarity
+    dot_product = np.dot(a, b)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    
+    return dot_product / (norm_a * norm_b)
+
+def detect_response_intent(user_text, templates, threshold=0.75):
+    """
+    Detect user intent using semantic similarity to predefined templates.
+    
+    Args:
+        user_text: The user's input text
+        templates: Dictionary of {intent: [template_texts]}
+        threshold: Minimum similarity score to consider a match
+    
+    Returns:
+        (intent, confidence_score) or (None, 0.0) if no match
+    """
+    user_embedding = get_text_embedding(user_text.lower())
+    if not user_embedding:
+        return None, 0.0
+    
+    best_intent = None
+    best_score = 0.0
+    
+    for intent, template_texts in templates.items():
+        for template in template_texts:
+            template_embedding = get_text_embedding(template.lower())
+            if template_embedding:
+                similarity = cosine_similarity(user_embedding, template_embedding)
+                if similarity > best_score:
+                    best_score = similarity
+                    best_intent = intent
+    
+    if best_score >= threshold:
+        return best_intent, best_score
+    else:
+        return None, 0.0
+
+# Define comprehensive yes/no response templates
+YES_NO_TEMPLATES = {
+    "yes": [
+        "yes", "yeah", "yep", "yup", "sure", "okay", "ok", "alright", "absolutely", 
+        "definitely", "of course", "certainly", "yes please", "yes i do", "yes i need help",
+        "yes i need assistance", "yes i have a problem", "yes i'm hurt", "yes i'm injured",
+        "yes i need medical help", "yes i need first aid", "yes i need treatment",
+        "i need help", "i need assistance", "i need medical help", "i'm hurt", "i'm injured",
+        "i have a problem", "i have an issue", "i need first aid", "i need treatment",
+        "help me", "assist me", "i need you", "please help", "can you help",
+        "i have a cut", "i have a wound", "i'm bleeding", "i'm in pain", "i'm hurt",
+        "i need bandages", "i need medical supplies", "i need treatment"
+    ],
+    "no": [
+        "no", "nope", "nah", "no thanks", "no thank you", "not really", "not right now",
+        "i'm fine", "i'm okay", "i'm good", "i'm all set", "i don't need help",
+        "i don't need assistance", "i'm not hurt", "i'm not injured", "nothing",
+        "nothing's wrong", "everything's fine", "i'm good to go", "all good",
+        "no problem", "no issues", "no worries", "i'm healthy", "i'm well",
+        "no medical help needed", "no first aid needed", "no treatment needed",
+        "i don't need medical supplies", "i don't need bandages", "i'm not bleeding",
+        "no pain", "no injury", "no wound", "no cut", "i'm safe", "i'm healthy"
+    ]
+}
+
+def detect_yes_no_response(user_text, threshold=0.75):
+    """
+    Detect if user response is yes or no using semantic embeddings.
+    
+    Args:
+        user_text: The user's input text
+        threshold: Minimum similarity score to consider a match
+    
+    Returns:
+        ("yes", confidence), ("no", confidence), or (None, 0.0) if unclear
+    """
+    intent, confidence = detect_response_intent(user_text, YES_NO_TEMPLATES, threshold)
+    
+    if intent:
+        log(f"🎯 Semantic Detection: '{user_text}' -> {intent} (confidence: {confidence:.3f})")
+        return intent, confidence
+    else:
+        log(f"❓ Semantic Detection: '{user_text}' -> unclear (best confidence: {confidence:.3f})")
+        return None, confidence
+
 # ---------- Audio Processing Functions ----------
 def detect_pcm_sample_rate(audio_data):
     """Try to detect PCM sample rate from audio data length and duration"""
@@ -1866,9 +2063,11 @@ def handle_conversation():
                 )
             continue
         
-        # Check for negative response
-        if any(phrase in user_text.lower() for phrase in ["no", "nothing", "i'm fine", "no thanks"]):
-            log("👋 User declined help")
+        # Check for yes/no response using semantic embeddings
+        response_intent, confidence = detect_yes_no_response(user_text, threshold=0.70)
+        
+        if response_intent == "no":
+            log(f"👋 User declined help (confidence: {confidence:.3f})")
             say(prompt_wake())
             current_state = ConversationState.WAITING_FOR_WAKE_WORD
             
@@ -1880,6 +2079,46 @@ def handle_conversation():
                 continue
             else:
                 continue
+        elif response_intent == "yes":
+            log(f"✅ User accepted help (confidence: {confidence:.3f})")
+            # Continue to active assistance
+        else:
+            # Unclear response - treat as yes and ask for clarification
+            log(f"❓ Unclear response (confidence: {confidence:.3f}), treating as yes and asking for clarification")
+            say("I want to make sure I understand correctly. Are you saying you need help with something?")
+            current_state = ConversationState.ACTIVE_ASSISTANCE
+            
+            # Listen for clarification
+            reset_audio_devices()  # Reset devices before listening
+            audio_data = listen_for_speech(timeout=T_SHORT)
+            
+            if audio_data is None:
+                log("🔇 No clarification received, proceeding with help")
+                # Continue to active assistance
+            else:
+                clarification_text = transcribe_audio_elevenlabs(audio_data)
+                if clarification_text:
+                    print(f"User clarification: {clarification_text}")
+                    clarification_intent, clarification_confidence = detect_yes_no_response(clarification_text, threshold=0.70)
+                    
+                    if clarification_intent == "no":
+                        log(f"👋 User clarified they don't need help (confidence: {clarification_confidence:.3f})")
+                        say(prompt_wake())
+                        current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                        
+                        wake_word = wait_for_wake_word()
+                        if wake_word == "SOLSTIS":
+                            say(prompt_continue_help())
+                            skip_opening_message = True
+                            continue
+                        else:
+                            continue
+                    elif clarification_intent == "yes":
+                        log(f"✅ User clarified they need help (confidence: {clarification_confidence:.3f})")
+                        # Continue to active assistance
+                    else:
+                        log("❓ Still unclear, proceeding with help")
+                        # Continue to active assistance
         
         # Enter active assistance loop
         current_state = ConversationState.ACTIVE_ASSISTANCE
@@ -2007,7 +2246,7 @@ def handle_conversation():
                 
                 if audio_data is None:
                     log("🔇 No response to emergency guidance, prompting and waiting for wake word")
-                    say("I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.")
+                    say(prompt_emergency_guidance())
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     wake_word = wait_for_wake_word()
@@ -2039,7 +2278,7 @@ def handle_conversation():
                 
                 if audio_data is None:
                     log("🔇 No response to confirmation, prompting and waiting for wake word")
-                    say("I'm here if you need any additional help. Say 'SOLSTIS' if you need me.")
+                    say(prompt_general_help())
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     wake_word = wait_for_wake_word()
@@ -2067,7 +2306,7 @@ def handle_conversation():
                     "no more", "nothing else", "i'm fine", "good to go", "all good"
                 ]):
                     log("✅ User confirmed they're done")
-                    say(closing_message())
+                    say(contextual_closing_message(conversation_history))
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     # Wait for wake word to restart
