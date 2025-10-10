@@ -1688,118 +1688,107 @@ def listen_for_speech(timeout=T_NORMAL):
             if arec: arec.terminate()
         except: pass
 
-# ---------- Semantic Embedding Functions ----------
-def get_text_embedding(text):
-    """Get OpenAI embedding for text"""
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.embeddings.create(
-            model=SEMANTIC_MODEL,
-            input=text
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        log(f"Error getting embedding: {e}")
-        return None
-
-def cosine_similarity(vec1, vec2):
-    """Calculate cosine similarity between two vectors"""
-    if not vec1 or not vec2:
-        return 0.0
-    
-    import numpy as np
-    
-    # Convert to numpy arrays
-    a = np.array(vec1)
-    b = np.array(vec2)
-    
-    # Calculate cosine similarity
-    dot_product = np.dot(a, b)
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-    
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    
-    return dot_product / (norm_a * norm_b)
-
-def detect_response_intent(user_text, templates, threshold=0.75):
+# ---------- Fast Yes/No Detection Functions ----------
+def detect_yes_no_response(user_text, threshold=0.5):
     """
-    Detect user intent using semantic similarity to predefined templates.
+    Detect if user response is yes or no using weighted keyword matching.
+    Fast alternative to embeddings that doesn't require API calls.
     
     Args:
         user_text: The user's input text
-        templates: Dictionary of {intent: [template_texts]}
-        threshold: Minimum similarity score to consider a match
-    
-    Returns:
-        (intent, confidence_score) or (None, 0.0) if no match
-    """
-    user_embedding = get_text_embedding(user_text.lower())
-    if not user_embedding:
-        return None, 0.0
-    
-    best_intent = None
-    best_score = 0.0
-    
-    for intent, template_texts in templates.items():
-        for template in template_texts:
-            template_embedding = get_text_embedding(template.lower())
-            if template_embedding:
-                similarity = cosine_similarity(user_embedding, template_embedding)
-                if similarity > best_score:
-                    best_score = similarity
-                    best_intent = intent
-    
-    if best_score >= threshold:
-        return best_intent, best_score
-    else:
-        return None, 0.0
-
-# Define comprehensive yes/no response templates
-YES_NO_TEMPLATES = {
-    "yes": [
-        "yes", "yeah", "yep", "yup", "sure", "okay", "ok", "alright", "absolutely", 
-        "definitely", "of course", "certainly", "yes please", "yes i do", "yes i need help",
-        "yes i need assistance", "yes i have a problem", "yes i'm hurt", "yes i'm injured",
-        "yes i need medical help", "yes i need first aid", "yes i need treatment",
-        "i need help", "i need assistance", "i need medical help", "i'm hurt", "i'm injured",
-        "i have a problem", "i have an issue", "i need first aid", "i need treatment",
-        "help me", "assist me", "i need you", "please help", "can you help",
-        "i have a cut", "i have a wound", "i'm bleeding", "i'm in pain", "i'm hurt",
-        "i need bandages", "i need medical supplies", "i need treatment"
-    ],
-    "no": [
-        "no", "nope", "nah", "no thanks", "no thank you", "not really", "not right now",
-        "i'm fine", "i'm okay", "i'm good", "i'm all set", "i don't need help",
-        "i don't need assistance", "i'm not hurt", "i'm not injured", "nothing",
-        "nothing's wrong", "everything's fine", "i'm good to go", "all good",
-        "no problem", "no issues", "no worries", "i'm healthy", "i'm well",
-        "no medical help needed", "no first aid needed", "no treatment needed",
-        "i don't need medical supplies", "i don't need bandages", "i'm not bleeding",
-        "no pain", "no injury", "no wound", "no cut", "i'm safe", "i'm healthy"
-    ]
-}
-
-def detect_yes_no_response(user_text, threshold=0.75):
-    """
-    Detect if user response is yes or no using semantic embeddings.
-    
-    Args:
-        user_text: The user's input text
-        threshold: Minimum similarity score to consider a match
+        threshold: Minimum weighted score to consider a match
     
     Returns:
         ("yes", confidence), ("no", confidence), or (None, 0.0) if unclear
     """
-    intent, confidence = detect_response_intent(user_text, YES_NO_TEMPLATES, threshold)
+    text_lower = user_text.lower()
     
-    if intent:
-        log(f"🎯 Semantic Detection: '{user_text}' -> {intent} (confidence: {confidence:.3f})")
-        return intent, confidence
+    # Define weighted keywords for yes/no detection
+    yes_keywords = {
+        # Direct yes words (high weight)
+        "yes": 1.0, "yeah": 0.9, "yep": 0.9, "yup": 0.9, "sure": 0.8, 
+        "okay": 0.7, "ok": 0.7, "alright": 0.7, "absolutely": 0.9, 
+        "definitely": 0.9, "of course": 0.8, "certainly": 0.8,
+        
+        # Help-related words (medium-high weight)
+        "help": 0.8, "assistance": 0.8, "assist": 0.7, "support": 0.6,
+        "need": 0.7, "require": 0.6, "want": 0.5,
+        
+        # Medical/emergency words (high weight)
+        "hurt": 0.9, "injured": 0.9, "pain": 0.8, "bleeding": 0.9,
+        "cut": 0.8, "wound": 0.8, "injury": 0.8, "emergency": 0.9,
+        "medical": 0.8, "first aid": 0.9, "treatment": 0.7,
+        "bandage": 0.7, "bandages": 0.7, "supplies": 0.6,
+        
+        # Problem indicators (medium weight)
+        "problem": 0.6, "issue": 0.6, "wrong": 0.5, "trouble": 0.5
+    }
+    
+    no_keywords = {
+        # Direct no words (high weight)
+        "no": 1.0, "nope": 0.9, "nah": 0.8, "not": 0.7, "nothing": 0.8,
+        "never": 0.6, "none": 0.6,
+        
+        # Status words (medium-high weight)
+        "fine": 0.8, "okay": 0.6, "good": 0.7, "well": 0.6, "healthy": 0.7,
+        "safe": 0.6, "alright": 0.5, "all set": 0.8, "good to go": 0.7,
+        
+        # Rejection phrases (high weight)
+        "no thanks": 0.9, "no thank you": 0.9, "not really": 0.8,
+        "not right now": 0.8, "don't need": 0.8, "don't want": 0.7,
+        
+        # Completion/status phrases (medium weight)
+        "all good": 0.7, "no problem": 0.6, "no issues": 0.6,
+        "no worries": 0.5, "everything's fine": 0.8, "nothing's wrong": 0.8
+    }
+    
+    # Calculate weighted scores
+    yes_score = 0.0
+    no_score = 0.0
+    
+    # Count word occurrences and apply weights
+    words = text_lower.split()
+    
+    for word in words:
+        # Check individual words
+        if word in yes_keywords:
+            yes_score += yes_keywords[word]
+        if word in no_keywords:
+            no_score += no_keywords[word]
+    
+    # Check for phrases (2-3 word combinations)
+    for i in range(len(words) - 1):
+        phrase_2 = f"{words[i]} {words[i+1]}"
+        if phrase_2 in yes_keywords:
+            yes_score += yes_keywords[phrase_2]
+        if phrase_2 in no_keywords:
+            no_score += no_keywords[phrase_2]
+    
+    for i in range(len(words) - 2):
+        phrase_3 = f"{words[i]} {words[i+1]} {words[i+2]}"
+        if phrase_3 in yes_keywords:
+            yes_score += yes_keywords[phrase_3]
+        if phrase_3 in no_keywords:
+            no_score += no_keywords[phrase_3]
+    
+    # Normalize scores by text length (prevent long texts from having inflated scores)
+    text_length_factor = min(1.0, 10.0 / len(words)) if words else 1.0
+    yes_score *= text_length_factor
+    no_score *= text_length_factor
+    
+    # Determine result
+    if yes_score > no_score and yes_score >= threshold:
+        confidence = min(1.0, yes_score)
+        log(f"🎯 Keyword Detection: '{user_text}' -> yes (score: {yes_score:.3f}, confidence: {confidence:.3f})")
+        return "yes", confidence
+    elif no_score > yes_score and no_score >= threshold:
+        confidence = min(1.0, no_score)
+        log(f"🎯 Keyword Detection: '{user_text}' -> no (score: {no_score:.3f}, confidence: {confidence:.3f})")
+        return "no", confidence
     else:
-        log(f"❓ Semantic Detection: '{user_text}' -> unclear (best confidence: {confidence:.3f})")
-        return None, confidence
+        best_score = max(yes_score, no_score)
+        log(f"❓ Keyword Detection: '{user_text}' -> unclear (yes: {yes_score:.3f}, no: {no_score:.3f})")
+        return None, best_score
 
 # ---------- Audio Processing Functions ----------
 def detect_pcm_sample_rate(audio_data):
@@ -1980,8 +1969,8 @@ def handle_conversation():
                 )
             continue
         
-        # Check for yes/no response using semantic embeddings
-        response_intent, confidence = detect_yes_no_response(user_text, threshold=0.70)
+        # Check for yes/no response using weighted keywords
+        response_intent, confidence = detect_yes_no_response(user_text, threshold=0.5)
         
         if response_intent == "no":
             log(f"👋 User declined help (confidence: {confidence:.3f})")
@@ -2016,7 +2005,7 @@ def handle_conversation():
                 clarification_text = transcribe_audio_elevenlabs(audio_data)
                 if clarification_text:
                     print(f"User clarification: {clarification_text}")
-                    clarification_intent, clarification_confidence = detect_yes_no_response(clarification_text, threshold=0.70)
+                    clarification_intent, clarification_confidence = detect_yes_no_response(clarification_text, threshold=0.5)
                     
                     if clarification_intent == "no":
                         log(f"👋 User clarified they don't need help (confidence: {clarification_confidence:.3f})")
