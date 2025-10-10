@@ -868,8 +868,7 @@ def prompt_emergency_guidance():
         "I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.",
         "Stay calm and follow the steps. Say 'SOLSTIS' if you need more help.",
         "Keep following the procedure. I'm here if you need clarification - just say 'SOLSTIS'.",
-        "You're doing great! Say 'SOLSTIS' if you need any additional support.",
-        "I'm monitoring your progress. Say 'SOLSTIS' if you need guidance."
+        "You're doing great! Say 'SOLSTIS' if you need any additional support."
     ]
     return random.choice(messages)
 
