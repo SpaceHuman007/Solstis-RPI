@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import requests
 import pvporcupine  # pip install pvporcupine
 import pvcobra
+import openai
 
 # GPIO imports for reed switch
 try:
@@ -775,114 +776,30 @@ def opening_message():
     message = f"Hey {USER_NAME}. I'm SOLSTIS and I'm here to help. If this is a life-threatening emergency, please call 9-1-1 now. Otherwise, is there something I can help you with?"
     return message
 
-def contextual_closing_message(conversation_history=None):
-    """Send a contextual closing message based on conversation content"""
-    import random
-    
-    # Check if this was a medical/emergency conversation
-    medical_keywords = ["hurt", "injured", "bleeding", "cut", "wound", "pain", "emergency", "medical", "first aid", "bandage", "treatment"]
-    was_medical = False
-    
-    if conversation_history:
-        for entry in conversation_history[-3:]:  # Check last 3 exchanges
-            content = entry.get("content", "").lower()
-            if any(keyword in content for keyword in medical_keywords):
-                was_medical = True
-                break
-    
-    if was_medical:
-        messages = [
-            f"Take care of yourself! Say '{WAKE_WORD_SOLSTIS}' if you need any follow-up help.",
-            f"Hope you're feeling better! I'm here if you need me - just say '{WAKE_WORD_SOLSTIS}'.",
-            f"Stay safe and take it easy! Remember to say '{WAKE_WORD_SOLSTIS}' if anything comes up.",
-            f"Glad I could help with your injury! Say '{WAKE_WORD_SOLSTIS}' anytime you need assistance.",
-            f"Take care and heal well! I'm always here when you say '{WAKE_WORD_SOLSTIS}'."
-        ]
-    else:
-        messages = [
-            f"Take care! If you need anything else, just say '{WAKE_WORD_SOLSTIS}'.",
-            f"You're all set! I'm here if you need me - just say '{WAKE_WORD_SOLSTIS}'.",
-            f"Glad I could help! Say '{WAKE_WORD_SOLSTIS}' anytime you need assistance.",
-            f"Stay safe! Remember, I'm always here when you say '{WAKE_WORD_SOLSTIS}'.",
-            f"All done! Don't hesitate to say '{WAKE_WORD_SOLSTIS}' if you need more help."
-        ]
-    
-    return random.choice(messages)
-
 def closing_message():
-    """Send a varied closing message (legacy function for compatibility)"""
-    return contextual_closing_message()
+    """Send the closing message"""
+    message = f"If you need any further help, please let me know by saying '{WAKE_WORD_SOLSTIS}'."
+    return message
 
 def prompt_wake():
-    """Prompt user to use wake word with variety"""
-    import random
-    messages = [
-        f"Got it! Just say '{WAKE_WORD_SOLSTIS}' whenever you need me.",
-        f"No problem! I'll be here when you say '{WAKE_WORD_SOLSTIS}'.",
-        f"Understood! Say '{WAKE_WORD_SOLSTIS}' if you change your mind.",
-        f"Alright! I'm standing by - just say '{WAKE_WORD_SOLSTIS}' to wake me up.",
-        f"Sure thing! Call me anytime with '{WAKE_WORD_SOLSTIS}'."
-    ]
-    return random.choice(messages)
+    """Prompt user to use wake word"""
+    message = f"OK, if you need me for any help, say {WAKE_WORD_SOLSTIS} to wake me up."
+    return message
 
 def prompt_no_response():
-    """Prompt when no response is detected with variety"""
-    import random
-    messages = [
-        f"I'm not hearing anything. Say '{WAKE_WORD_SOLSTIS}' if you need help!",
-        f"No response detected. Just say '{WAKE_WORD_SOLSTIS}' when you're ready.",
-        f"I can't hear you clearly. Try saying '{WAKE_WORD_SOLSTIS}' if you need assistance.",
-        f"Are you there? Say '{WAKE_WORD_SOLSTIS}' if you need my help.",
-        f"I'm listening but not hearing anything. Say '{WAKE_WORD_SOLSTIS}' to get my attention."
-    ]
-    return random.choice(messages)
+    """Prompt when no response is detected"""
+    message = f"I am hearing no response, be sure to say '{WAKE_WORD_SOLSTIS}' if you need my assistance!"
+    return message
 
 def prompt_step_complete():
-    """Prompt user to say step complete with variety"""
-    import random
-    messages = [
-        f"Let me know when you're finished by saying '{WAKE_WORD_STEP_COMPLETE}'.",
-        f"Just say '{WAKE_WORD_STEP_COMPLETE}' when you're done with that step.",
-        f"Say '{WAKE_WORD_STEP_COMPLETE}' once you've completed the task.",
-        f"Give me a heads up with '{WAKE_WORD_STEP_COMPLETE}' when you're finished.",
-        f"Let me know you're done by saying '{WAKE_WORD_STEP_COMPLETE}'."
-    ]
-    return random.choice(messages)
+    """Prompt user to say step complete"""
+    message = f"Say '{WAKE_WORD_STEP_COMPLETE}' when you're done."
+    return message
 
 def prompt_continue_help():
-    """Prompt for continued assistance with variety"""
-    import random
-    messages = [
-        f"Hi {USER_NAME}! What can I help you with?",
-        f"Hello {USER_NAME}! How can I assist you today?",
-        f"Hey there {USER_NAME}! What do you need help with?",
-        f"Good to see you {USER_NAME}! What can I do for you?",
-        f"Hi {USER_NAME}! I'm here to help - what's going on?"
-    ]
-    return random.choice(messages)
-
-def prompt_emergency_guidance():
-    """Prompt for emergency guidance with variety"""
-    import random
-    messages = [
-        "I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.",
-        "Stay calm and follow the steps. Say 'SOLSTIS' if you need more help.",
-        "Keep following the procedure. I'm here if you need clarification - just say 'SOLSTIS'.",
-        "You're doing great! Say 'SOLSTIS' if you need any additional support."
-    ]
-    return random.choice(messages)
-
-def prompt_general_help():
-    """Prompt for general help with variety"""
-    import random
-    messages = [
-        "I'm here if you need any additional help. Say 'SOLSTIS' if you need me.",
-        "Don't hesitate to ask if you need more assistance. Just say 'SOLSTIS'.",
-        "I'm standing by if you need anything else. Say 'SOLSTIS' to get my attention.",
-        "Feel free to reach out if you need more help. Say 'SOLSTIS' anytime.",
-        "I'm here for you if you need additional support. Just say 'SOLSTIS'."
-    ]
-    return random.choice(messages)
+    """Prompt for continued assistance"""
+    message = f"Hey {USER_NAME}, how can I help you?"
+    return message
 
 def handle_user_feedback(user_text, conversation_history):
     """Handle user feedback about incorrect procedure state detection"""
@@ -1775,7 +1692,8 @@ def listen_for_speech(timeout=T_NORMAL):
 def get_text_embedding(text):
     """Get OpenAI embedding for text"""
     try:
-        response = openai.embeddings.create(
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.embeddings.create(
             model=SEMANTIC_MODEL,
             input=text
         )
@@ -2245,7 +2163,7 @@ def handle_conversation():
                 
                 if audio_data is None:
                     log("🔇 No response to emergency guidance, prompting and waiting for wake word")
-                    say(prompt_emergency_guidance())
+                    say("I'm here if you need any additional guidance while getting help. Say 'SOLSTIS' if you need me.")
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     wake_word = wait_for_wake_word()
@@ -2277,7 +2195,7 @@ def handle_conversation():
                 
                 if audio_data is None:
                     log("🔇 No response to confirmation, prompting and waiting for wake word")
-                    say(prompt_general_help())
+                    say("I'm here if you need any additional help. Say 'SOLSTIS' if you need me.")
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     wake_word = wait_for_wake_word()
@@ -2305,7 +2223,7 @@ def handle_conversation():
                     "no more", "nothing else", "i'm fine", "good to go", "all good"
                 ]):
                     log("✅ User confirmed they're done")
-                    say(contextual_closing_message(conversation_history))
+                    say(closing_message())
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
                     # Wait for wake word to restart
