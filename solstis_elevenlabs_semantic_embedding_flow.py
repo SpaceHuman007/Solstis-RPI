@@ -74,9 +74,6 @@ USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config - Cobra VAD primary, RMS fallback
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with Cobra VAD)
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))  # Legacy - not used with Cobra VAD
-QUICK_SILENCE_AFTER_SPEECH = float(os.getenv("QUICK_SILENCE_AFTER_SPEECH", "1.5"))  # Legacy - not used with Cobra VAD
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "3.0"))  # Legacy - not used with Cobra VAD
 MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
 
 # Cobra VAD configuration
@@ -1337,9 +1334,9 @@ def analyze_speech_completion_cobra(audio_data):
         log(f"Cobra VAD Ratios: overall_speech_ratio={overall_speech_ratio:.2f}")
         
         # User is done speaking if:
-        # 1. We have detected speech at some point (overall_speech_ratio > 0.2)
+        # 1. We have detected speech at some point (any speech detected)
         # 2. Silence duration exceeds threshold
-        has_detected_speech = overall_speech_ratio > 0.2  # At least 20% speech detected (increased from 10%)
+        has_detected_speech = last_speech_time is not None  # Any speech detected at all
         is_done_speaking = has_detected_speech and silence_duration >= VAD_COMPLETION_THRESHOLD
         
         log(f"Cobra VAD Decision: is_done={is_done_speaking} (has_speech: {has_detected_speech}, silence >= {VAD_COMPLETION_THRESHOLD}s: {silence_duration >= VAD_COMPLETION_THRESHOLD})")
