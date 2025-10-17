@@ -2253,7 +2253,8 @@ def handle_conversation():
                     log("📝 Still need more info, continuing conversation")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    continue  # Continue listening for more information
+                    # Don't continue here - go back to listening for new user input
+                    # The loop will naturally continue and listen for new speech
                 elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                     # Now we have enough info to give specific instructions
                     log("✅ Got enough info, providing specific instructions")
@@ -2276,7 +2277,8 @@ def handle_conversation():
                     log("🔄 Continuing conversation")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    continue  # Continue listening for more information
+                    # Don't continue here - go back to listening for new user input
+                    # The loop will naturally continue and listen for new speech
             
             elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                 # User needs to complete an action
