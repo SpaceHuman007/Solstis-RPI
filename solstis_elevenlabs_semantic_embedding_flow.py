@@ -2243,7 +2243,40 @@ def handle_conversation():
                         break
                 
                 print(f"User: {user_text}")
-                continue  # Re-process with new info
+                
+                # Process the follow-up response in the context of needing more information
+                # Don't go back to main loop - continue the conversation flow
+                outcome, response_text = process_response(user_text, conversation_history)
+                
+                if outcome == ResponseOutcome.NEED_MORE_INFO:
+                    # Still need more info - continue the conversation
+                    log("📝 Still need more info, continuing conversation")
+                    say(response_text)
+                    parse_response_for_items(response_text)
+                    continue  # Continue listening for more information
+                elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
+                    # Now we have enough info to give specific instructions
+                    log("✅ Got enough info, providing specific instructions")
+                    say(response_text)
+                    parse_response_for_items(response_text)
+                    # Break out of NEED_MORE_INFO loop to handle USER_ACTION_REQUIRED
+                    break
+                elif outcome == ResponseOutcome.PROCEDURE_DONE:
+                    # User indicates they're done
+                    log("✅ User indicates procedure is complete")
+                    say(response_text)
+                    break  # Break out of NEED_MORE_INFO loop to handle PROCEDURE_DONE
+                elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
+                    # Emergency situation
+                    log("🚨 Emergency situation detected")
+                    say(response_text)
+                    break  # Break out of NEED_MORE_INFO loop to handle EMERGENCY_SITUATION
+                else:
+                    # Default case - continue conversation
+                    log("🔄 Continuing conversation")
+                    say(response_text)
+                    parse_response_for_items(response_text)
+                    continue  # Continue listening for more information
             
             elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                 # User needs to complete an action
