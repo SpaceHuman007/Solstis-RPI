@@ -2013,16 +2013,9 @@ def handle_conversation():
             else:
                 continue
         
-        # Check for background noise or unclear audio transcriptions
-        noise_indicators = [
-            'soft background noise', 'background noise', 'noise', 'static', 'hiss',
-            'unclear', 'inaudible', 'muffled', 'distorted', 'echo', 'feedback',
-            'breathing', 'sigh', 'cough', 'throat clear', 'click', 'pop'
-        ]
-        
-        user_text_lower = user_text.lower()
-        if any(indicator in user_text_lower for indicator in noise_indicators):
-            log(f"🔇 Background noise detected: '{user_text}' - treating as silence")
+        # Check for background noise or unclear audio transcriptions (parentheses-based detection)
+        if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
+            log(f"🔇 Background noise detected (parentheses): '{user_text}' - treating as silence")
             say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
             current_state = ConversationState.WAITING_FOR_WAKE_WORD
             
@@ -2169,16 +2162,9 @@ def handle_conversation():
                     log("❌ No transcription received")
                     continue
                 
-                # Check for background noise or unclear audio transcriptions
-                noise_indicators = [
-                    'soft background noise', 'background noise', 'noise', 'static', 'hiss',
-                    'unclear', 'inaudible', 'muffled', 'distorted', 'echo', 'feedback',
-                    'breathing', 'sigh', 'cough', 'throat clear', 'click', 'pop'
-                ]
-                
-                user_text_lower = user_text.lower()
-                if any(indicator in user_text_lower for indicator in noise_indicators):
-                    log(f"🔇 Background noise detected in active assistance: '{user_text}' - treating as silence")
+                # Check for background noise or unclear audio transcriptions (parentheses-based detection)
+                if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
+                    log(f"🔇 Background noise detected in active assistance (parentheses): '{user_text}' - treating as silence")
                     say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
                     current_state = ConversationState.WAITING_FOR_WAKE_WORD
                     
