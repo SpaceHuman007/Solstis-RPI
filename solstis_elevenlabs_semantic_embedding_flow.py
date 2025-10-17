@@ -2015,18 +2015,11 @@ def handle_conversation():
         
         # Check for background noise or unclear audio transcriptions (parentheses-based detection)
         if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
-            log(f"🔇 Background noise detected (parentheses): '{user_text}' - treating as silence")
-            say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
-            current_state = ConversationState.WAITING_FOR_WAKE_WORD
-            
-            wake_word = wait_for_wake_word()
-            if wake_word == "SOLSTIS":
-                say(prompt_continue_help())
-                # Don't skip opening message - user didn't actually respond, so replay it
-                skip_opening_message = False
-                continue
-            else:
-                continue
+            log(f"🔇 Background noise detected (parentheses): '{user_text}' - treating as no response")
+            # Treat background noise the same as no response - go through retry logic
+            # This will cause the system to retry the opening message first
+            audio_data = None  # Force it to go through the retry logic
+            continue
         
         # Check for user feedback about incorrect detection
         feedback_outcome, feedback_response = handle_user_feedback(user_text, conversation_history)
@@ -2164,18 +2157,10 @@ def handle_conversation():
                 
                 # Check for background noise or unclear audio transcriptions (parentheses-based detection)
                 if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
-                    log(f"🔇 Background noise detected in active assistance (parentheses): '{user_text}' - treating as silence")
-                    say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
-                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
-                    
-                    wake_word = wait_for_wake_word()
-                    if wake_word == "SOLSTIS":
-                        say(prompt_continue_help())
-                        # Don't skip opening message - user didn't actually respond, so replay it
-                        skip_opening_message = False
-                        break  # Exit active assistance loop
-                    else:
-                        break
+                    log(f"🔇 Background noise detected in active assistance (parentheses): '{user_text}' - treating as no response")
+                    # Treat background noise the same as no response - go through retry logic
+                    audio_data = None  # Force it to go through the retry logic
+                    continue
                 
                 print(f"User: {user_text}")
                 continue  # Re-process with new info
