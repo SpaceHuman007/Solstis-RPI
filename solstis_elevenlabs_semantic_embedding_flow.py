@@ -60,16 +60,13 @@ MODEL = os.getenv("MODEL", "gpt-4-turbo")
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE", "plughw:0,0")  # Default to plughw:0,0
 
-# Configure ReSpeaker for both input and output
-if MIC_DEVICE == "plughw:3,0":
-    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
-    print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
-elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
+# Audio device configuration - output always uses plughw:0,0
+if OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
     print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
     OUT_DEVICE = "default"
-OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
+OUT_SR = int(os.getenv("OUT_SR", "44100"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config - Cobra VAD primary, RMS fallback
