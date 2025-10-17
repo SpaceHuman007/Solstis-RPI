@@ -58,7 +58,7 @@ if not OPENAI_API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4-turbo")
 
 # Audio output config
-OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
+OUT_DEVICE = os.getenv("AUDIO_DEVICE", "plughw:0,0")  # Default to plughw:0,0
 
 # Configure ReSpeaker for both input and output
 if MIC_DEVICE == "plughw:3,0":

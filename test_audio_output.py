@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # Audio configuration
-OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
+OUT_DEVICE = os.getenv("AUDIO_DEVICE", "plughw:0,0")  # Default to plughw:0,0
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 
 def spawn_aplay(rate):
