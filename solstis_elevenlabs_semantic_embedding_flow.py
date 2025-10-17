@@ -1734,7 +1734,7 @@ def detect_yes_no_response(user_text, threshold=0.5):
         "safe": 0.6, "all set": 0.8, "good to go": 0.7,
         
         # Rejection phrases (high weight)
-        "no thanks": 0.9, "no thank you": 0.9, "not really": 0.8,
+        "no thanks": 0.9, "no thank you": 0.9, "thank you": 0.8, "not really": 0.8,
         "not right now": 0.8, "don't need": 0.8, "don't want": 0.7,
         "i'm good": 0.8, "i'm fine": 0.8, "i'm okay": 0.7,
         
@@ -1752,22 +1752,39 @@ def detect_yes_no_response(user_text, threshold=0.5):
     words = text_lower.split()
     
     for word in words:
-        # Check individual words
+        # Clean word of punctuation for better matching
+        clean_word = word.strip('.,!?;:"()[]{}')
+        
+        # Check individual words (both original and cleaned)
         if word in yes_keywords:
             yes_score += yes_keywords[word]
+        elif clean_word in yes_keywords:
+            yes_score += yes_keywords[clean_word]
+            
         if word in no_keywords:
             no_score += no_keywords[word]
+        elif clean_word in no_keywords:
+            no_score += no_keywords[clean_word]
     
-    # Check for phrases (2-3 word combinations)
+    # Check for phrases (2-3 word combinations) with punctuation handling
     for i in range(len(words) - 1):
-        phrase_2 = f"{words[i]} {words[i+1]}"
+        # Clean both words for phrase matching
+        clean_word1 = words[i].strip('.,!?;:"()[]{}')
+        clean_word2 = words[i+1].strip('.,!?;:"()[]{}')
+        phrase_2 = f"{clean_word1} {clean_word2}"
+        
         if phrase_2 in yes_keywords:
             yes_score += yes_keywords[phrase_2]
         if phrase_2 in no_keywords:
             no_score += no_keywords[phrase_2]
     
     for i in range(len(words) - 2):
-        phrase_3 = f"{words[i]} {words[i+1]} {words[i+2]}"
+        # Clean all three words for phrase matching
+        clean_word1 = words[i].strip('.,!?;:"()[]{}')
+        clean_word2 = words[i+1].strip('.,!?;:"()[]{}')
+        clean_word3 = words[i+2].strip('.,!?;:"()[]{}')
+        phrase_3 = f"{clean_word1} {clean_word2} {clean_word3}"
+        
         if phrase_3 in yes_keywords:
             yes_score += yes_keywords[phrase_3]
         if phrase_3 in no_keywords:
