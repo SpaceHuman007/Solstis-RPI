@@ -74,7 +74,7 @@ USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config - Cobra VAD primary, RMS fallback
 SPEECH_THRESHOLD = int(os.getenv("SPEECH_THRESHOLD", "800"))  # RMS fallback threshold (not used with Cobra VAD)
-MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "30.0"))  # Maximum speech duration (safety timeout)
+MAX_SPEECH_DURATION = float(os.getenv("MAX_SPEECH_DURATION", "15.0"))  # Maximum speech duration (safety timeout)
 
 # Cobra VAD configuration
 COBRA_VAD_THRESHOLD = float(os.getenv("COBRA_VAD_THRESHOLD", "0.3"))  # Voice probability threshold (0.0-1.0) - lowered for better detection
@@ -88,9 +88,9 @@ MIN_SPEECH_THRESHOLD = int(os.getenv("MIN_SPEECH_THRESHOLD", "200"))  # Minimum 
 MAX_SPEECH_THRESHOLD = int(os.getenv("MAX_SPEECH_THRESHOLD", "2000"))  # Maximum threshold regardless of noise
 
 # Timeout configurations
-T_SHORT = float(os.getenv("T_SHORT", "30.0"))  # Short timeout for initial responses (extended)
-T_NORMAL = float(os.getenv("T_NORMAL", "30.0"))  # Normal timeout for conversation
-T_LONG = float(os.getenv("T_LONG", "30.0"))  # Long timeout for step completion
+T_SHORT = float(os.getenv("T_SHORT", "15.0"))  # Short timeout for initial responses (extended)
+T_NORMAL = float(os.getenv("T_NORMAL", "15.0"))  # Normal timeout for conversation
+T_LONG = float(os.getenv("T_LONG", "15.0"))  # Long timeout for step completion
 
 # LED Control config
 LED_ENABLED = os.getenv("LED_ENABLED", "true").lower() == "true" and LED_CONTROL_AVAILABLE
