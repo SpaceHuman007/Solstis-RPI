@@ -1704,8 +1704,7 @@ def detect_yes_no_response(user_text, threshold=0.5):
     yes_keywords = {
         # Direct yes words (high weight)
         "yes": 1.0, "yeah": 0.9, "yep": 0.9, "yup": 0.9, "sure": 0.8, 
-        "okay": 0.7, "ok": 0.7, "alright": 0.7, "absolutely": 0.9, 
-        "definitely": 0.9, "of course": 0.8, "certainly": 0.8,
+        "absolutely": 0.9, "definitely": 0.9, "of course": 0.8, "certainly": 0.8,
         
         # Help-related words (medium-high weight)
         "help": 0.8, "assistance": 0.8, "assist": 0.7, "support": 0.6,
@@ -1718,7 +1717,11 @@ def detect_yes_no_response(user_text, threshold=0.5):
         "bandage": 0.7, "bandages": 0.7, "supplies": 0.6,
         
         # Problem indicators (medium weight)
-        "problem": 0.6, "issue": 0.6, "wrong": 0.5, "trouble": 0.5
+        "problem": 0.6, "issue": 0.6, "wrong": 0.5, "trouble": 0.5,
+        
+        # Affirmative phrases
+        "i do": 0.8, "i need": 0.8, "i want": 0.7, "please": 0.6,
+        "that would": 0.7, "that sounds": 0.6
     }
     
     no_keywords = {
@@ -1726,17 +1729,19 @@ def detect_yes_no_response(user_text, threshold=0.5):
         "no": 1.0, "nope": 0.9, "nah": 0.8, "not": 0.7, "nothing": 0.8,
         "never": 0.6, "none": 0.6,
         
-        # Status words (medium-high weight)
-        "fine": 0.8, "okay": 0.6, "good": 0.7, "well": 0.6, "healthy": 0.7,
-        "safe": 0.6, "alright": 0.5, "all set": 0.8, "good to go": 0.7,
+        # Status words (medium-high weight) - removed "okay" to avoid conflict
+        "fine": 0.8, "good": 0.7, "well": 0.6, "healthy": 0.7,
+        "safe": 0.6, "all set": 0.8, "good to go": 0.7,
         
         # Rejection phrases (high weight)
         "no thanks": 0.9, "no thank you": 0.9, "not really": 0.8,
         "not right now": 0.8, "don't need": 0.8, "don't want": 0.7,
+        "i'm good": 0.8, "i'm fine": 0.8, "i'm okay": 0.7,
         
         # Completion/status phrases (medium weight)
         "all good": 0.7, "no problem": 0.6, "no issues": 0.6,
-        "no worries": 0.5, "everything's fine": 0.8, "nothing's wrong": 0.8
+        "no worries": 0.5, "everything's fine": 0.8, "nothing's wrong": 0.8,
+        "i don't": 0.7, "i can't": 0.6, "not today": 0.7
     }
     
     # Calculate weighted scores
@@ -1768,23 +1773,33 @@ def detect_yes_no_response(user_text, threshold=0.5):
         if phrase_3 in no_keywords:
             no_score += no_keywords[phrase_3]
     
-    # Normalize scores by text length (prevent long texts from having inflated scores)
-    text_length_factor = min(1.0, 10.0 / len(words)) if words else 1.0
+    # Normalize scores by text length (less aggressive normalization)
+    text_length_factor = min(1.0, 15.0 / len(words)) if words else 1.0
     yes_score *= text_length_factor
     no_score *= text_length_factor
     
-    # Determine result
+    # Determine result with lower threshold for better detection
+    threshold = 0.3  # Lowered from 0.5 for better sensitivity
+    
+    # Enhanced debugging
+    log(f"🔍 Yes/No Detection Analysis:")
+    log(f"   Text: '{user_text}'")
+    log(f"   Words: {words}")
+    log(f"   Yes score: {yes_score:.3f} (threshold: {threshold})")
+    log(f"   No score: {no_score:.3f} (threshold: {threshold})")
+    log(f"   Text length factor: {text_length_factor:.3f}")
+    
     if yes_score > no_score and yes_score >= threshold:
         confidence = min(1.0, yes_score)
-        log(f"🎯 Keyword Detection: '{user_text}' -> yes (score: {yes_score:.3f}, confidence: {confidence:.3f})")
+        log(f"✅ Keyword Detection: '{user_text}' -> YES (score: {yes_score:.3f}, confidence: {confidence:.3f})")
         return "yes", confidence
     elif no_score > yes_score and no_score >= threshold:
         confidence = min(1.0, no_score)
-        log(f"🎯 Keyword Detection: '{user_text}' -> no (score: {no_score:.3f}, confidence: {confidence:.3f})")
+        log(f"❌ Keyword Detection: '{user_text}' -> NO (score: {no_score:.3f}, confidence: {confidence:.3f})")
         return "no", confidence
     else:
         best_score = max(yes_score, no_score)
-        log(f"❓ Keyword Detection: '{user_text}' -> unclear (yes: {yes_score:.3f}, no: {no_score:.3f})")
+        log(f"❓ Keyword Detection: '{user_text}' -> UNCLEAR (yes: {yes_score:.3f}, no: {no_score:.3f}, best: {best_score:.3f})")
         return None, best_score
 
 # ---------- Audio Processing Functions ----------
@@ -1967,7 +1982,7 @@ def handle_conversation():
             continue
         
         # Check for yes/no response using weighted keywords
-        response_intent, confidence = detect_yes_no_response(user_text, threshold=0.5)
+        response_intent, confidence = detect_yes_no_response(user_text, threshold=0.3)
         
         if response_intent == "no":
             log(f"👋 User declined help (confidence: {confidence:.3f})")
