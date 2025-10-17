@@ -2013,6 +2013,28 @@ def handle_conversation():
             else:
                 continue
         
+        # Check for background noise or unclear audio transcriptions
+        noise_indicators = [
+            'soft background noise', 'background noise', 'noise', 'static', 'hiss',
+            'unclear', 'inaudible', 'muffled', 'distorted', 'echo', 'feedback',
+            'breathing', 'sigh', 'cough', 'throat clear', 'click', 'pop'
+        ]
+        
+        user_text_lower = user_text.lower()
+        if any(indicator in user_text_lower for indicator in noise_indicators):
+            log(f"🔇 Background noise detected: '{user_text}' - treating as silence")
+            say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
+            current_state = ConversationState.WAITING_FOR_WAKE_WORD
+            
+            wake_word = wait_for_wake_word()
+            if wake_word == "SOLSTIS":
+                say(prompt_continue_help())
+                # Set flag to skip opening message on next iteration
+                skip_opening_message = True
+                continue
+            else:
+                continue
+        
         # Check for user feedback about incorrect detection
         feedback_outcome, feedback_response = handle_user_feedback(user_text, conversation_history)
         if feedback_outcome is not None:
@@ -2146,6 +2168,27 @@ def handle_conversation():
                 if not user_text:
                     log("❌ No transcription received")
                     continue
+                
+                # Check for background noise or unclear audio transcriptions
+                noise_indicators = [
+                    'soft background noise', 'background noise', 'noise', 'static', 'hiss',
+                    'unclear', 'inaudible', 'muffled', 'distorted', 'echo', 'feedback',
+                    'breathing', 'sigh', 'cough', 'throat clear', 'click', 'pop'
+                ]
+                
+                user_text_lower = user_text.lower()
+                if any(indicator in user_text_lower for indicator in noise_indicators):
+                    log(f"🔇 Background noise detected in active assistance: '{user_text}' - treating as silence")
+                    say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                    
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        skip_opening_message = True
+                        break  # Exit active assistance loop
+                    else:
+                        break
                 
                 print(f"User: {user_text}")
                 continue  # Re-process with new info
