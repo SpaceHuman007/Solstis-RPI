@@ -1961,10 +1961,36 @@ def handle_conversation():
         # Transcribe the response using ElevenLabs
         user_text = transcribe_audio_elevenlabs(audio_data)
         if not user_text:
-            log("❌ No transcription received")
-            continue
+            log("❌ No transcription received - user may not have spoken")
+            # Handle silence/no response
+            say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
+            current_state = ConversationState.WAITING_FOR_WAKE_WORD
+            
+            wake_word = wait_for_wake_word()
+            if wake_word == "SOLSTIS":
+                say(prompt_continue_help())
+                # Set flag to skip opening message on next iteration
+                skip_opening_message = True
+                continue
+            else:
+                continue
         
         print(f"User: {user_text}")
+        
+        # Check if the transcription is too short or unclear (likely noise/unclear speech)
+        if len(user_text.strip()) < 3 or user_text.strip().lower() in ['', 'huh', 'what', 'um', 'uh', 'ah']:
+            log(f"❓ Unclear or very short transcription: '{user_text}' - treating as silence")
+            say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
+            current_state = ConversationState.WAITING_FOR_WAKE_WORD
+            
+            wake_word = wait_for_wake_word()
+            if wake_word == "SOLSTIS":
+                say(prompt_continue_help())
+                # Set flag to skip opening message on next iteration
+                skip_opening_message = True
+                continue
+            else:
+                continue
         
         # Check for user feedback about incorrect detection
         feedback_outcome, feedback_response = handle_user_feedback(user_text, conversation_history)
