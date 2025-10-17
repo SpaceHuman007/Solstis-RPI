@@ -2513,7 +2513,7 @@ def test_audio_devices():
             return False
         
         # Test speaker
-        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "44100", "-c", "1", "/dev/null"]
         result = subprocess.run(test_cmd, capture_output=True, timeout=5)
         if result.returncode != 0:
             log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
