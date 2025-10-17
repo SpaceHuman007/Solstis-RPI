@@ -62,14 +62,14 @@ OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 
 # Configure ReSpeaker for both input and output
 if MIC_DEVICE == "plughw:3,0":
-    OUT_DEVICE = "default"  # Use same ReSpeaker device for both input and output
+    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
     print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
 elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
     print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
     OUT_DEVICE = "default"
-OUT_SR = int(os.getenv("OUT_SR", "44100"))  # Audio output sample rate
+OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config - Cobra VAD primary, RMS fallback
@@ -1169,10 +1169,10 @@ def text_to_speech_elevenlabs(text):
     """Convert text to speech using ElevenLabs TTS API"""
     try:
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_44100")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_24000")
         
         # ElevenLabs TTS API endpoint with PCM format as query parameter
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_44100"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_24000"
         
         # Prepare headers
         headers = {
@@ -1848,8 +1848,8 @@ def play_audio(audio_data):
             
             # ElevenLabs now properly returns PCM format
             log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
-            log(f"🔊 Audio Config: sample_rate=44100, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(44100)
+            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(24000)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
@@ -2277,8 +2277,7 @@ def handle_conversation():
                     log("🔄 Continuing conversation")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    # Don't continue here - go back to listening for new user input
-                    # The loop will naturally continue and listen for new speech
+                    continue  # Continue listening for more information
             
             elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                 # User needs to complete an action
@@ -2513,7 +2512,7 @@ def test_audio_devices():
             return False
         
         # Test speaker
-        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "44100", "-c", "1", "/dev/null"]
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
         result = subprocess.run(test_cmd, capture_output=True, timeout=5)
         if result.returncode != 0:
             log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
