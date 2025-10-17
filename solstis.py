@@ -1844,9 +1844,9 @@ def play_audio(audio_data):
                 time.sleep(0.5)
             
             # ElevenLabs now properly returns PCM format
-            log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
-            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(24000)
+            log(f"🔊 Audio Format: PCM (ElevenLabs), using aplay")
+            log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(OUT_SR)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
