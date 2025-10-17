@@ -1169,10 +1169,10 @@ def text_to_speech_elevenlabs(text):
     """Convert text to speech using ElevenLabs TTS API"""
     try:
         log(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_24000")
+        log(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_44100")
         
         # ElevenLabs TTS API endpoint with PCM format as query parameter
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_24000"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_44100"
         
         # Prepare headers
         headers = {
@@ -1848,8 +1848,8 @@ def play_audio(audio_data):
             
             # ElevenLabs now properly returns PCM format
             log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
-            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(24000)
+            log(f"🔊 Audio Config: sample_rate=44100, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(44100)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
