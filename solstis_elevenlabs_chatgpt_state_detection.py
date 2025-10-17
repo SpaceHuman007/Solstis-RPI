@@ -1515,8 +1515,8 @@ def play_audio(audio_data):
             
             # ElevenLabs now properly returns PCM format
             log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
-            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(24000)
+            log(f"🔊 Audio Config: sample_rate=44100, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(44100)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
@@ -1907,7 +1907,7 @@ def test_audio_devices():
             return False
         
         # Test speaker
-        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "44100", "-c", "1", "/dev/null"]
         result = subprocess.run(test_cmd, capture_output=True, timeout=5)
         if result.returncode != 0:
             log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
