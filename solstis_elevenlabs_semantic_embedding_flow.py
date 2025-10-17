@@ -60,10 +60,10 @@ MODEL = os.getenv("MODEL", "gpt-4-turbo")
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 
-# Configure ReSpeaker for both input and output
+# Configure separate devices for input and output
 if MIC_DEVICE == "plughw:3,0":
-    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
-    print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
+    OUT_DEVICE = "plughw:0,0"  # Use separate speaker device for output
+    print(f"[INFO] Using separate devices: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
 elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
