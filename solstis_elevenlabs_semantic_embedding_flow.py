@@ -60,10 +60,10 @@ MODEL = os.getenv("MODEL", "gpt-4-turbo")
 # Audio output config
 OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 
-# Configure separate devices for input and output
+# Configure ReSpeaker for both input and output
 if MIC_DEVICE == "plughw:3,0":
-    OUT_DEVICE = "default"  # Use Raspberry Pi audio jack for output
-    print(f"[INFO] Using ReSpeaker mic with Pi audio jack: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
+    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
+    print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
 elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
@@ -864,13 +864,7 @@ def process_response(user_text, conversation_history=None):
                 "what does": 0.8, "can you tell me": 0.8, "is it": 0.6, "are you": 0.6,
                 "do you": 0.6, "what kind": 0.8, "which": 0.7, "how severe": 0.8,
                 "describe": 0.8, "explain": 0.8, "tell me more": 0.8, "i need to know": 0.8,
-                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8,
-                # Add keywords for user providing information
-                "it's about": 0.7, "it's": 0.5, "about": 0.5, "inches": 0.6, "centimeters": 0.6,
-                "it doesn't hurt": 0.7, "it hurts": 0.7, "pain": 0.6, "hurts": 0.6,
-                "i have": 0.6, "i feel": 0.6, "i notice": 0.6, "i see": 0.6,
-                "the bruise": 0.7, "the cut": 0.7, "the wound": 0.7, "the injury": 0.7,
-                "length": 0.6, "size": 0.6, "diameter": 0.6, "width": 0.6
+                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8
             }
             
             emergency_keywords = {
@@ -900,17 +894,10 @@ def process_response(user_text, conversation_history=None):
                 recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
                 
                 # Context bonus for continuation patterns
-                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe", "have you noticed", "can you recall", "tell me about"]):
-                    need_more_info_score += 0.3
-                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put", "let me know when", "say step complete"]):
+                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe"]):
+                    need_more_info_score += 0.2
+                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
                     user_action_score += 0.2
-                
-                # Special handling for follow-up questions
-                if any(phrase in recent_text.lower() for phrase in ["have you noticed", "can you recall", "tell me about", "describe", "what does", "how big", "how long"]):
-                    # If the AI just asked a follow-up question, and user is providing information, boost need_more_info
-                    if any(phrase in response_lower for phrase in ["it's", "about", "inches", "centimeters", "i have", "i feel", "i notice", "the bruise", "the cut", "the wound", "pain", "hurts"]):
-                        need_more_info_score += 0.4
-                        log("🔍 Follow-up question context: User providing information in response to AI question")
             
             scores = {
                 ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
@@ -2272,18 +2259,18 @@ def handle_conversation():
                     log("✅ Got enough info, providing specific instructions")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    # Continue in active assistance loop to handle USER_ACTION_REQUIRED
-                    continue  # Continue to USER_ACTION_REQUIRED handling below
+                    # Break out of NEED_MORE_INFO loop to handle USER_ACTION_REQUIRED
+                    break
                 elif outcome == ResponseOutcome.PROCEDURE_DONE:
                     # User indicates they're done
                     log("✅ User indicates procedure is complete")
                     say(response_text)
-                    continue  # Continue to PROCEDURE_DONE handling below
+                    break  # Break out of NEED_MORE_INFO loop to handle PROCEDURE_DONE
                 elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
                     # Emergency situation
                     log("🚨 Emergency situation detected")
                     say(response_text)
-                    continue  # Continue to EMERGENCY_SITUATION handling below
+                    break  # Break out of NEED_MORE_INFO loop to handle EMERGENCY_SITUATION
                 else:
                     # Default case - continue conversation
                     log("🔄 Continuing conversation")
