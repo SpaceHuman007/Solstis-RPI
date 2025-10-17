@@ -2016,10 +2016,82 @@ def handle_conversation():
         # Check for background noise or unclear audio transcriptions (parentheses-based detection)
         if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
             log(f"🔇 Background noise detected (parentheses): '{user_text}' - treating as no response")
-            # Treat background noise the same as no response - go through retry logic
-            # This will cause the system to retry the opening message first
-            audio_data = None  # Force it to go through the retry logic
-            continue
+            # Check if we've already retried once
+            if not hasattr(handle_conversation, '_noise_retry_count'):
+                handle_conversation._noise_retry_count = 0
+            
+            handle_conversation._noise_retry_count += 1
+            
+            if handle_conversation._noise_retry_count == 1:
+                # First retry - replay opening message
+                log("🔄 Background noise detected, retrying opening message")
+                say(opening_message())
+                cleanup_audio_processes()
+                audio_data = listen_for_speech(timeout=T_SHORT)
+                
+                if audio_data is None:
+                    # Still no response, go to wake word prompt
+                    log("🔇 Still no response after retry, prompting and waiting for wake word")
+                    say(prompt_no_response())
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                    
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        skip_opening_message = False
+                        handle_conversation._noise_retry_count = 0  # Reset counter
+                        continue
+                    else:
+                        continue
+                else:
+                    # Got audio on retry, continue with transcription
+                    user_text = transcribe_audio_elevenlabs(audio_data)
+                    if not user_text:
+                        # Still no transcription, go to wake word prompt
+                        log("🔇 Still no transcription after retry, prompting and waiting for wake word")
+                        say(prompt_no_response())
+                        current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                        
+                        wake_word = wait_for_wake_word()
+                        if wake_word == "SOLSTIS":
+                            say(prompt_continue_help())
+                            skip_opening_message = False
+                            handle_conversation._noise_retry_count = 0  # Reset counter
+                            continue
+                        else:
+                            continue
+                    elif user_text.strip().startswith('(') and user_text.strip().endswith(')'):
+                        # Still background noise, go to wake word prompt
+                        log("🔇 Still background noise after retry, prompting and waiting for wake word")
+                        say(prompt_no_response())
+                        current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                        
+                        wake_word = wait_for_wake_word()
+                        if wake_word == "SOLSTIS":
+                            say(prompt_continue_help())
+                            skip_opening_message = False
+                            handle_conversation._noise_retry_count = 0  # Reset counter
+                            continue
+                        else:
+                            continue
+                    else:
+                        # Got real transcription, reset counter and continue
+                        handle_conversation._noise_retry_count = 0
+                        # Continue with normal flow
+            else:
+                # Second retry or more - go to wake word prompt
+                log("🔇 Background noise after retry, prompting and waiting for wake word")
+                say(prompt_no_response())
+                current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                
+                wake_word = wait_for_wake_word()
+                if wake_word == "SOLSTIS":
+                    say(prompt_continue_help())
+                    skip_opening_message = False
+                    handle_conversation._noise_retry_count = 0  # Reset counter
+                    continue
+                else:
+                    continue
         
         # Check for user feedback about incorrect detection
         feedback_outcome, feedback_response = handle_user_feedback(user_text, conversation_history)
@@ -2158,9 +2230,17 @@ def handle_conversation():
                 # Check for background noise or unclear audio transcriptions (parentheses-based detection)
                 if user_text.strip().startswith('(') and user_text.strip().endswith(')'):
                     log(f"🔇 Background noise detected in active assistance (parentheses): '{user_text}' - treating as no response")
-                    # Treat background noise the same as no response - go through retry logic
-                    audio_data = None  # Force it to go through the retry logic
-                    continue
+                    # In active assistance, go directly to wake word prompt for background noise
+                    say("I am hearing no response, be sure to say 'SOLSTIS' if you need my assistance!")
+                    current_state = ConversationState.WAITING_FOR_WAKE_WORD
+                    
+                    wake_word = wait_for_wake_word()
+                    if wake_word == "SOLSTIS":
+                        say(prompt_continue_help())
+                        skip_opening_message = False
+                        break  # Exit active assistance loop
+                    else:
+                        break
                 
                 print(f"User: {user_text}")
                 continue  # Re-process with new info
