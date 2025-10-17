@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple audio output test for Raspberry Pi audio jack
-Generates a test tone and plays it through the audio output
+Generates speech and plays it through the audio output
 """
 
 import os
@@ -9,6 +9,9 @@ import subprocess
 import time
 import struct
 import math
+import tempfile
+import wave
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -17,6 +20,17 @@ load_dotenv(override=True)
 # Audio configuration
 OUT_DEVICE = os.getenv("AUDIO_DEVICE", "plughw:0,0")  # Default to plughw:0,0
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
+
+# ElevenLabs config
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
+ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+
+# ElevenLabs voice settings
+ELEVENLABS_STABILITY = float(os.getenv("ELEVENLABS_STABILITY", "0.5"))
+ELEVENLABS_SIMILARITY_BOOST = float(os.getenv("ELEVENLABS_SIMILARITY_BOOST", "0.5"))
+ELEVENLABS_STYLE = float(os.getenv("ELEVENLABS_STYLE", "0.0"))
+ELEVENLABS_SPEAKER_BOOST = os.getenv("ELEVENLABS_SPEAKER_BOOST", "true").lower() == "true"
 
 def spawn_aplay(rate):
     """Spawn aplay process for audio playback"""
@@ -37,53 +51,52 @@ def spawn_aplay(rate):
         print(f"🔊 Spawn Error: Failed to create aplay process: {e}")
         raise
 
-def generate_tone(frequency=440, duration=2.0, sample_rate=24000, amplitude=0.3):
-    """
-    Generate a sine wave tone
-    frequency: frequency in Hz
-    duration: duration in seconds
-    sample_rate: sample rate in Hz
-    amplitude: amplitude (0.0 to 1.0)
-    """
-    samples = int(duration * sample_rate)
-    audio_data = bytearray()
+def text_to_speech_elevenlabs(text):
+    """Convert text to speech using ElevenLabs TTS API"""
+    if not ELEVENLABS_API_KEY:
+        print("❌ ELEVENLABS_API_KEY not set - cannot generate speech")
+        return b""
     
-    for i in range(samples):
-        # Generate sine wave
-        t = i / sample_rate
-        sample = amplitude * math.sin(2 * math.pi * frequency * t)
+    try:
+        print(f"🎤 ElevenLabs TTS Request: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+        print(f"🎤 ElevenLabs TTS Config: voice_id={ELEVENLABS_VOICE_ID}, model_id=eleven_turbo_v2_5, format=pcm_24000")
         
-        # Convert to 16-bit signed integer
-        sample_int = int(sample * 32767)
+        # ElevenLabs TTS API endpoint with PCM format as query parameter
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}?output_format=pcm_24000"
         
-        # Pack as little-endian signed 16-bit
-        audio_data.extend(struct.pack('<h', sample_int))
+        # Prepare headers
+        headers = {
+            "Accept": "audio/pcm",  # Request PCM format
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_API_KEY
+        }
+        
+        # Prepare data
+        data = {
+            "text": text,
+            "model_id": "eleven_turbo_v2_5",  # Use turbo model that fully supports PCM
+            "voice_settings": {
+                "stability": ELEVENLABS_STABILITY,
+                "similarity_boost": ELEVENLABS_SIMILARITY_BOOST,
+                "style": ELEVENLABS_STYLE,
+                "use_speaker_boost": ELEVENLABS_SPEAKER_BOOST
+            }
+        }
+        
+        # Make request
+        response = requests.post(url, json=data, headers=headers)
+        
+        if response.status_code == 200:
+            audio_data = response.content
+            print(f"🎤 ElevenLabs TTS Success: Generated {len(audio_data)} bytes of PCM audio data (24kHz)")
+            return audio_data
+        else:
+            print(f"🎤 ElevenLabs TTS Error: {response.status_code} - {response.text}")
+            return b""
     
-    return bytes(audio_data)
-
-def generate_chirp(start_freq=200, end_freq=800, duration=3.0, sample_rate=24000, amplitude=0.3):
-    """
-    Generate a frequency sweep (chirp) from start_freq to end_freq
-    """
-    samples = int(duration * sample_rate)
-    audio_data = bytearray()
-    
-    for i in range(samples):
-        # Calculate current frequency (linear sweep)
-        t = i / sample_rate
-        progress = t / duration
-        current_freq = start_freq + (end_freq - start_freq) * progress
-        
-        # Generate sine wave at current frequency
-        sample = amplitude * math.sin(2 * math.pi * current_freq * t)
-        
-        # Convert to 16-bit signed integer
-        sample_int = int(sample * 32767)
-        
-        # Pack as little-endian signed 16-bit
-        audio_data.extend(struct.pack('<h', sample_int))
-    
-    return bytes(audio_data)
+    except Exception as e:
+        print(f"🎤 ElevenLabs TTS Error: {e}")
+        return b""
 
 def play_audio(audio_data):
     """Play audio data using aplay"""
@@ -112,37 +125,47 @@ def play_audio(audio_data):
         print(f"🔊 Audio Error: {e}")
 
 def test_audio_output():
-    """Run audio output tests"""
-    print("🎵 Starting Audio Output Test")
+    """Run audio output tests with speech"""
+    print("🎤 Starting Audio Output Test with Speech")
     print(f"📊 Configuration:")
     print(f"   - Sample Rate: {OUT_SR} Hz")
     print(f"   - Output Device: {OUT_DEVICE or 'default'}")
+    print(f"   - ElevenLabs Voice ID: {ELEVENLABS_VOICE_ID}")
     print()
     
-    # Test 1: Simple tone (440 Hz A note)
-    print("🎵 Test 1: Playing 440 Hz tone for 2 seconds...")
-    tone_data = generate_tone(frequency=440, duration=2.0, sample_rate=OUT_SR)
-    play_audio(tone_data)
-    time.sleep(0.5)
+    if not ELEVENLABS_API_KEY:
+        print("❌ ELEVENLABS_API_KEY not set in environment variables")
+        print("   Please set your ElevenLabs API key to test speech output")
+        return
     
-    # Test 2: Higher frequency tone
-    print("🎵 Test 2: Playing 800 Hz tone for 2 seconds...")
-    tone_data = generate_tone(frequency=800, duration=2.0, sample_rate=OUT_SR)
-    play_audio(tone_data)
-    time.sleep(0.5)
+    # Test 1: Simple greeting
+    print("🎤 Test 1: Playing greeting message...")
+    speech_data = text_to_speech_elevenlabs("Hello! This is a test of the audio output system.")
+    if speech_data:
+        play_audio(speech_data)
+    time.sleep(1.0)
     
-    # Test 3: Frequency sweep (chirp)
-    print("🎵 Test 3: Playing frequency sweep from 200 Hz to 800 Hz for 3 seconds...")
-    chirp_data = generate_chirp(start_freq=200, end_freq=800, duration=3.0, sample_rate=OUT_SR)
-    play_audio(chirp_data)
-    time.sleep(0.5)
+    # Test 2: Numbers and letters
+    print("🎤 Test 2: Playing numbers and letters...")
+    speech_data = text_to_speech_elevenlabs("Testing one, two, three. A, B, C.")
+    if speech_data:
+        play_audio(speech_data)
+    time.sleep(1.0)
     
-    # Test 4: Lower frequency tone
-    print("🎵 Test 4: Playing 220 Hz tone for 2 seconds...")
-    tone_data = generate_tone(frequency=220, duration=2.0, sample_rate=OUT_SR)
-    play_audio(tone_data)
+    # Test 3: Longer sentence
+    print("🎤 Test 3: Playing longer sentence...")
+    speech_data = text_to_speech_elevenlabs("This is a longer test sentence to verify that the audio output is working correctly through the audio jack.")
+    if speech_data:
+        play_audio(speech_data)
+    time.sleep(1.0)
     
-    print("🎵 Audio output test completed!")
+    # Test 4: Medical kit reference
+    print("🎤 Test 4: Playing medical kit reference...")
+    speech_data = text_to_speech_elevenlabs("Band-Aids, gauze pads, and medical tape are available in your kit.")
+    if speech_data:
+        play_audio(speech_data)
+    
+    print("🎤 Audio output test completed!")
 
 if __name__ == "__main__":
     try:
