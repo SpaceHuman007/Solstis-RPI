@@ -1973,8 +1973,8 @@ def handle_conversation():
                 wake_word = wait_for_wake_word()
                 if wake_word == "SOLSTIS":
                     say(prompt_continue_help())
-                    # Set flag to skip opening message on next iteration
-                    skip_opening_message = True
+                    # Don't skip opening message - user didn't actually respond, so replay it
+                    skip_opening_message = False
                     continue
                 else:
                     continue
