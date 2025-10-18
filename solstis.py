@@ -2315,8 +2315,10 @@ def handle_conversation():
                         log("✅ Step complete detected, continuing procedure")
                         # Keep LEDs lit when step is complete - don't clear them
                         log("💡 Keeping item LEDs lit after step completion")
-                        # Continue procedure - don't set user_text to avoid reprocessing
-                        # Just break out of the step completion loop to continue
+                        # Update conversation history to reflect step completion
+                        conversation_history.append({"role": "user", "content": "I have completed the step you asked me to do."})
+                        conversation_history.append({"role": "assistant", "content": "Great! Let's continue with the next step."})
+                        # Continue procedure
                         break  # Back to processing
                     
                     elif wake_word == "SOLSTIS":
@@ -2337,8 +2339,10 @@ def handle_conversation():
                         print(f"User: {user_text}")
                         break  # Back to processing
                 
-                # After step completion, continue the procedure by asking for next step
+                # After step completion, continue the procedure naturally
                 log("🔄 Step completed, continuing procedure")
+                # The conversation history now includes the step completion acknowledgment
+                # Continue the conversation by asking for the next step
                 user_text = "What should I do next?"
                 continue  # Re-process with next step request
             
