@@ -58,10 +58,13 @@ if not OPENAI_API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4-turbo")
 
 # Audio output config
-OUT_DEVICE = os.getenv("AUDIO_DEVICE", "default")
+OUT_DEVICE = os.getenv("AUDIO_DEVICE")  # e.g., "plughw:3,0" or None for default
 
-# Audio device configuration - handle conflicts properly
-if OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
+# Configure ReSpeaker for both input and output
+if MIC_DEVICE == "plughw:3,0":
+    OUT_DEVICE = "plughw:3,0"  # Use same ReSpeaker device for both input and output
+    print(f"[INFO] Using ReSpeaker for both input and output: MIC={MIC_DEVICE}, OUT={OUT_DEVICE}")
+elif OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
     print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
@@ -861,7 +864,13 @@ def process_response(user_text, conversation_history=None):
                 "what does": 0.8, "can you tell me": 0.8, "is it": 0.6, "are you": 0.6,
                 "do you": 0.6, "what kind": 0.8, "which": 0.7, "how severe": 0.8,
                 "describe": 0.8, "explain": 0.8, "tell me more": 0.8, "i need to know": 0.8,
-                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8
+                "before i can help": 0.8, "to better understand": 0.8, "to assess": 0.8,
+                # Add keywords for user providing information
+                "it's about": 0.7, "it's": 0.5, "about": 0.5, "inches": 0.6, "centimeters": 0.6,
+                "it doesn't hurt": 0.7, "it hurts": 0.7, "pain": 0.6, "hurts": 0.6,
+                "i have": 0.6, "i feel": 0.6, "i notice": 0.6, "i see": 0.6,
+                "the bruise": 0.7, "the cut": 0.7, "the wound": 0.7, "the injury": 0.7,
+                "length": 0.6, "size": 0.6, "diameter": 0.6, "width": 0.6
             }
             
             emergency_keywords = {
@@ -891,10 +900,17 @@ def process_response(user_text, conversation_history=None):
                 recent_text = " ".join([msg.get("content", "") for msg in recent_messages if msg.get("role") == "assistant"])
                 
                 # Context bonus for continuation patterns
-                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe"]):
-                    need_more_info_score += 0.2
-                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put"]):
+                if any(phrase in recent_text.lower() for phrase in ["where", "how", "what", "describe", "have you noticed", "can you recall", "tell me about"]):
+                    need_more_info_score += 0.3
+                if any(phrase in recent_text.lower() for phrase in ["apply", "use", "place", "put", "let me know when", "say step complete"]):
                     user_action_score += 0.2
+                
+                # Special handling for follow-up questions
+                if any(phrase in recent_text.lower() for phrase in ["have you noticed", "can you recall", "tell me about", "describe", "what does", "how big", "how long"]):
+                    # If the AI just asked a follow-up question, and user is providing information, boost need_more_info
+                    if any(phrase in response_lower for phrase in ["it's", "about", "inches", "centimeters", "i have", "i feel", "i notice", "the bruise", "the cut", "the wound", "pain", "hurts"]):
+                        need_more_info_score += 0.4
+                        log("🔍 Follow-up question context: User providing information in response to AI question")
             
             scores = {
                 ResponseOutcome.USER_ACTION_REQUIRED: user_action_score,
@@ -1604,7 +1620,7 @@ def listen_for_speech(timeout=T_NORMAL):
                 else:
                     # Process still running but no data - device might be busy
                     log("⚠️  No audio data from arecord, device might be busy")
-                    time.sleep(1.0)  # Longer pause for device recovery
+                    time.sleep(0.1)  # Brief pause before retry
                     continue
             
             audio_buffer += chunk
@@ -1823,12 +1839,12 @@ def detect_yes_no_response(user_text, threshold=0.5):
 # ---------- Audio Processing Functions ----------
 def detect_pcm_sample_rate(audio_data):
     """Try to detect PCM sample rate from audio data length and duration"""
-    # ElevenLabs PCM is typically 24000Hz
+    # ElevenLabs PCM is typically 22050Hz or 44100Hz
     # For a typical "Hey there" phrase (~2 seconds), we can estimate
     if len(audio_data) < 100000:  # Short audio
-        return 24000  # ElevenLabs standard
+        return 22050  # Common for voice
     else:
-        return 24000  # ElevenLabs standard
+        return 44100  # Higher quality
 
 def play_audio(audio_data):
     """Play audio data using appropriate player based on format"""
@@ -1843,16 +1859,10 @@ def play_audio(audio_data):
                 subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # ElevenLabs returns PCM at 24kHz, resample if needed
-            elevenlabs_sample_rate = 24000
-            if OUT_SR != elevenlabs_sample_rate:
-                log(f"🔊 Audio Resampling: Converting from {elevenlabs_sample_rate}Hz to {OUT_SR}Hz")
-                audio_data, _ = audioop.ratecv(audio_data, 2, 1, elevenlabs_sample_rate, OUT_SR, None)
-                log(f"🔊 Audio Resampled: {len(audio_data)} bytes after resampling")
-            
-            log(f"🔊 Audio Format: PCM (ElevenLabs), using aplay")
-            log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
-            player = spawn_aplay(OUT_SR)
+            # ElevenLabs now properly returns PCM format
+            log(f"🔊 Audio Format: PCM (ElevenLabs 24kHz), using aplay")
+            log(f"🔊 Audio Config: sample_rate=24000, device={OUT_DEVICE or 'default'}")
+            player = spawn_aplay(24000)
             
             log(f"🔊 Audio Process: Spawned player process (PID: {player.pid})")
             
@@ -1863,7 +1873,7 @@ def play_audio(audio_data):
             
             # Wait for playback to complete with timeout
             try:
-                return_code = player.wait(timeout=30)  # 30 second timeout for PCM
+                return_code = player.wait(timeout=10)  # 10 second timeout for PCM
                 log(f"🔊 Audio Complete: player finished with return code {return_code}")
                 
                 if return_code != 0:
@@ -2256,25 +2266,24 @@ def handle_conversation():
                     log("📝 Still need more info, continuing conversation")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    # Don't continue here - go back to listening for new user input
-                    # The loop will naturally continue and listen for new speech
+                    continue  # Continue listening for more information
                 elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                     # Now we have enough info to give specific instructions
                     log("✅ Got enough info, providing specific instructions")
                     say(response_text)
                     parse_response_for_items(response_text)
-                    # Break out of NEED_MORE_INFO loop to handle USER_ACTION_REQUIRED
-                    break
+                    # Continue in active assistance loop to handle USER_ACTION_REQUIRED
+                    continue  # Continue to USER_ACTION_REQUIRED handling below
                 elif outcome == ResponseOutcome.PROCEDURE_DONE:
                     # User indicates they're done
                     log("✅ User indicates procedure is complete")
                     say(response_text)
-                    break  # Break out of NEED_MORE_INFO loop to handle PROCEDURE_DONE
+                    continue  # Continue to PROCEDURE_DONE handling below
                 elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
                     # Emergency situation
                     log("🚨 Emergency situation detected")
                     say(response_text)
-                    break  # Break out of NEED_MORE_INFO loop to handle EMERGENCY_SITUATION
+                    continue  # Continue to EMERGENCY_SITUATION handling below
                 else:
                     # Default case - continue conversation
                     log("🔄 Continuing conversation")
@@ -2515,7 +2524,7 @@ def test_audio_devices():
             return False
         
         # Test speaker
-        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", str(OUT_SR), "-c", "1", "/dev/null"]
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
         result = subprocess.run(test_cmd, capture_output=True, timeout=5)
         if result.returncode != 0:
             log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
