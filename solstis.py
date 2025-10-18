@@ -1843,7 +1843,13 @@ def play_audio(audio_data):
                 subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
                 time.sleep(0.5)
             
-            # ElevenLabs now properly returns PCM format
+            # ElevenLabs returns PCM at 24kHz, resample if needed
+            elevenlabs_sample_rate = 24000
+            if OUT_SR != elevenlabs_sample_rate:
+                log(f"🔊 Audio Resampling: Converting from {elevenlabs_sample_rate}Hz to {OUT_SR}Hz")
+                audio_data, _ = audioop.ratecv(audio_data, 2, 1, elevenlabs_sample_rate, OUT_SR, None)
+                log(f"🔊 Audio Resampled: {len(audio_data)} bytes after resampling")
+            
             log(f"🔊 Audio Format: PCM (ElevenLabs), using aplay")
             log(f"🔊 Audio Config: sample_rate={OUT_SR}, device={OUT_DEVICE or 'default'}")
             player = spawn_aplay(OUT_SR)
