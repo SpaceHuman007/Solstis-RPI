@@ -2315,9 +2315,17 @@ def handle_conversation():
                         log("✅ Step complete detected, continuing procedure")
                         # Keep LEDs lit when step is complete - don't clear them
                         log("💡 Keeping item LEDs lit after step completion")
-                        # Update conversation history to reflect step completion
-                        conversation_history.append({"role": "user", "content": "I have completed the step you asked me to do."})
-                        conversation_history.append({"role": "assistant", "content": "Great! Let's continue with the next step."})
+                        # Update conversation history to reflect step completion with specific context
+                        # Get the last assistant message to understand what step was completed
+                        last_assistant_msg = ""
+                        if conversation_history and len(conversation_history) > 0:
+                            for msg in reversed(conversation_history):
+                                if msg.get("role") == "assistant":
+                                    last_assistant_msg = msg.get("content", "")
+                                    break
+                        
+                        conversation_history.append({"role": "user", "content": "I have completed that step."})
+                        conversation_history.append({"role": "assistant", "content": "Great! Now let's continue with the next step in the treatment procedure."})
                         # Continue procedure
                         break  # Back to processing
                     
@@ -2342,8 +2350,8 @@ def handle_conversation():
                 # After step completion, continue the procedure naturally
                 log("🔄 Step completed, continuing procedure")
                 # The conversation history now includes the step completion acknowledgment
-                # Continue the conversation by asking for the next step
-                user_text = "What should I do next?"
+                # Continue the conversation by asking for the next step in the treatment
+                user_text = "What is the next step in the treatment?"
                 continue  # Re-process with next step request
             
             elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
