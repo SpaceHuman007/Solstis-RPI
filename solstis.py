@@ -58,15 +58,15 @@ if not OPENAI_API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4-turbo")
 
 # Audio output config
-OUT_DEVICE = os.getenv("AUDIO_DEVICE", "plughw:0,0")  # Default to plughw:0,0
+OUT_DEVICE = os.getenv("AUDIO_DEVICE", "pulse")  # Default to pulse
 
-# Audio device configuration - output always uses plughw:0,0
+# Audio device configuration - handle conflicts properly
 if OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
-    print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
-    OUT_DEVICE = "default"
-OUT_SR = int(os.getenv("OUT_SR", "44100"))  # Audio output sample rate
+    print("[WARN] Setting OUT_DEVICE to 'pulse' to avoid conflict")
+    OUT_DEVICE = "pulse"
+OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
 # Speech detection config - Cobra VAD primary, RMS fallback
@@ -1604,7 +1604,7 @@ def listen_for_speech(timeout=T_NORMAL):
                 else:
                     # Process still running but no data - device might be busy
                     log("⚠️  No audio data from arecord, device might be busy")
-                    time.sleep(0.1)  # Brief pause before retry
+                    time.sleep(1.0)  # Longer pause for device recovery
                     continue
             
             audio_buffer += chunk
@@ -1823,12 +1823,12 @@ def detect_yes_no_response(user_text, threshold=0.5):
 # ---------- Audio Processing Functions ----------
 def detect_pcm_sample_rate(audio_data):
     """Try to detect PCM sample rate from audio data length and duration"""
-    # ElevenLabs PCM is typically 22050Hz or 44100Hz
+    # ElevenLabs PCM is typically 24000Hz
     # For a typical "Hey there" phrase (~2 seconds), we can estimate
     if len(audio_data) < 100000:  # Short audio
-        return 22050  # Common for voice
+        return 24000  # ElevenLabs standard
     else:
-        return 44100  # Higher quality
+        return 24000  # ElevenLabs standard
 
 def play_audio(audio_data):
     """Play audio data using appropriate player based on format"""
@@ -1863,7 +1863,7 @@ def play_audio(audio_data):
             
             # Wait for playback to complete with timeout
             try:
-                return_code = player.wait(timeout=10)  # 10 second timeout for PCM
+                return_code = player.wait(timeout=30)  # 30 second timeout for PCM
                 log(f"🔊 Audio Complete: player finished with return code {return_code}")
                 
                 if return_code != 0:
@@ -2490,7 +2490,9 @@ def reset_audio_devices():
         # Kill all audio processes
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
+        # Only kill pulseaudio if not using it as output device
+        if OUT_DEVICE != "pulse":
+            subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
         
         # Reset ALSA
         subprocess.run(["alsactl", "restore"], check=False, capture_output=True)
@@ -2515,7 +2517,7 @@ def test_audio_devices():
             return False
         
         # Test speaker
-        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", "24000", "-c", "1", "/dev/null"]
+        test_cmd = ["aplay", "-D", OUT_DEVICE or "default", "-f", "S16_LE", "-r", str(OUT_SR), "-c", "1", "/dev/null"]
         result = subprocess.run(test_cmd, capture_output=True, timeout=5)
         if result.returncode != 0:
             log(f"⚠️  Speaker test failed: {result.stderr.decode()}")
