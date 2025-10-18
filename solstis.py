@@ -58,14 +58,14 @@ if not OPENAI_API_KEY:
 MODEL = os.getenv("MODEL", "gpt-4-turbo")
 
 # Audio output config
-OUT_DEVICE = os.getenv("AUDIO_DEVICE", "pulse")  # Default to pulse
+OUT_DEVICE = os.getenv("AUDIO_DEVICE", "default")
 
 # Audio device configuration - handle conflicts properly
 if OUT_DEVICE == MIC_DEVICE and MIC_DEVICE != "plughw:3,0":
     # Only warn for other devices, not ReSpeaker
     print(f"[WARN] MIC_DEVICE and OUT_DEVICE are both {MIC_DEVICE}")
-    print("[WARN] Setting OUT_DEVICE to 'pulse' to avoid conflict")
-    OUT_DEVICE = "pulse"
+    print("[WARN] Setting OUT_DEVICE to 'default' to avoid conflict")
+    OUT_DEVICE = "default"
 OUT_SR = int(os.getenv("OUT_SR", "24000"))  # Audio output sample rate
 USER_NAME = os.getenv("USER_NAME", "User")
 
@@ -2490,9 +2490,7 @@ def reset_audio_devices():
         # Kill all audio processes
         subprocess.run(["pkill", "-9", "-f", "arecord"], check=False, capture_output=True)
         subprocess.run(["pkill", "-9", "-f", "aplay"], check=False, capture_output=True)
-        # Only kill pulseaudio if not using it as output device
-        if OUT_DEVICE != "pulse":
-            subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
+        subprocess.run(["pkill", "-9", "-f", "pulseaudio"], check=False, capture_output=True)
         
         # Reset ALSA
         subprocess.run(["alsactl", "restore"], check=False, capture_output=True)
