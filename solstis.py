@@ -2261,33 +2261,29 @@ def handle_conversation():
                 # Don't go back to main loop - continue the conversation flow
                 outcome, response_text = process_response(user_text, conversation_history)
                 
+                # Handle the new outcome - but don't speak again since we already spoke above
                 if outcome == ResponseOutcome.NEED_MORE_INFO:
                     # Still need more info - continue the conversation
                     log("📝 Still need more info, continuing conversation")
-                    say(response_text)
                     parse_response_for_items(response_text)
                     continue  # Continue listening for more information
                 elif outcome == ResponseOutcome.USER_ACTION_REQUIRED:
                     # Now we have enough info to give specific instructions
                     log("✅ Got enough info, providing specific instructions")
-                    say(response_text)
                     parse_response_for_items(response_text)
                     # Continue in active assistance loop to handle USER_ACTION_REQUIRED
                     continue  # Continue to USER_ACTION_REQUIRED handling below
                 elif outcome == ResponseOutcome.PROCEDURE_DONE:
                     # User indicates they're done
                     log("✅ User indicates procedure is complete")
-                    say(response_text)
                     continue  # Continue to PROCEDURE_DONE handling below
                 elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
                     # Emergency situation
                     log("🚨 Emergency situation detected")
-                    say(response_text)
                     continue  # Continue to EMERGENCY_SITUATION handling below
                 else:
                     # Default case - continue conversation
                     log("🔄 Continuing conversation")
-                    say(response_text)
                     parse_response_for_items(response_text)
                     continue  # Continue listening for more information
             
@@ -2319,8 +2315,8 @@ def handle_conversation():
                         log("✅ Step complete detected, continuing procedure")
                         # Keep LEDs lit when step is complete - don't clear them
                         log("💡 Keeping item LEDs lit after step completion")
-                        # Continue procedure
-                        user_text = "I've completed the step you asked me to do."
+                        # Continue procedure - don't set user_text to avoid reprocessing
+                        # Just break out of the step completion loop to continue
                         break  # Back to processing
                     
                     elif wake_word == "SOLSTIS":
@@ -2341,7 +2337,10 @@ def handle_conversation():
                         print(f"User: {user_text}")
                         break  # Back to processing
                 
-                continue  # Re-process after step
+                # After step completion, continue the procedure by asking for next step
+                log("🔄 Step completed, continuing procedure")
+                user_text = "What should I do next?"
+                continue  # Re-process with next step request
             
             elif outcome == ResponseOutcome.EMERGENCY_SITUATION:
                 # Emergency situation - continue conversation to provide ongoing support
